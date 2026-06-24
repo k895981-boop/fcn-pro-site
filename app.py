@@ -211,8 +211,8 @@ period_months = st.sidebar.number_input("觀察天期（月）", min_value=1.0, 
 run_btn = st.sidebar.button("🚀 開始分析", type="primary")
 
 st.sidebar.divider()
-st.sidebar.header("7️⃣ 產生")
-if st.sidebar.button("🌐 產生公版頁面", type="primary", use_container_width=True):
+st.sidebar.header("7️⃣ 生成網頁")
+if st.sidebar.button("🌐 生成網頁", type="primary", use_container_width=True):
     _tlist  = [t.strip().upper() for t in tickers_input.split(',') if t.strip()]
     _prices = {}
     for _t in _tlist:
@@ -232,6 +232,171 @@ if run_btn:
 # ==========================================
 # 核心函數
 # ==========================================
+
+def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
+                  principal, fx_rate, first_obs_date, last_obs_date,
+                  filled_periods, monthly_coupon_usd, monthly_coupon_twd, prices):
+    today_str = date.today().strftime('%Y/%m/%d')
+    ticker_str = ' + '.join(tickers)
+    title = f'FCN・{ticker_str}・{int(principal):,} USD'
+
+    # 配息期程 rows
+    period_rows_html = ''
+    for p in filled_periods:
+        pay_str = p['pay'].strftime('%Y/%m/%d') if p.get('pay') else '—'
+        twd = round(p['amount_usd'] * fx_rate)
+        period_rows_html += f'''
+        <tr>
+          <td>第 {p["t"]} 期</td>
+          <td>{pay_str}</td>
+          <td style="color:#4ade80">${p["amount_usd"]:,.0f}</td>
+          <td style="color:#4ade80">{twd:,} TWD</td>
+        </tr>'''
+
+    # 個股卡片
+    stock_cards_html = ''
+    for t in tickers:
+        cp = prices.get(t)
+        if cp:
+            ko_p  = cp * ko_pct  / 100
+            st_p  = cp * strike_pct / 100
+            ki_p  = cp * ki_pct  / 100
+            # price bar: range from ki_pct*0.75 to ko_pct*1.25
+            rng_lo = ki_pct * 0.75; rng_hi = ko_pct * 1.25; rng = rng_hi - rng_lo
+            ki_pos  = (ki_pct     - rng_lo) / rng * 100
+            st_pos  = (strike_pct - rng_lo) / rng * 100
+            ko_pos  = (ko_pct     - rng_lo) / rng * 100
+            cur_pos = (100.0      - rng_lo) / rng * 100
+            price_display = f'${cp:.2f}'
+        else:
+            price_display = '載入中…'
+            ki_pos = st_pos = ko_pos = cur_pos = 0
+            ko_p = st_p = ki_p = 0
+
+        stock_cards_html += f'''
+        <div class="stock-card">
+          <div class="stock-ticker">{t}</div>
+          <div class="stock-price">{price_display}</div>
+          <div class="bar-wrap">
+            <div class="bar-danger"  style="left:0;width:{ki_pos:.1f}%"></div>
+            <div class="bar-warning" style="left:{ki_pos:.1f}%;width:{(st_pos-ki_pos):.1f}%"></div>
+            <div class="bar-safe"    style="left:{st_pos:.1f}%;width:{(ko_pos-st_pos):.1f}%"></div>
+            <div class="bar-ko"      style="left:{ko_pos:.1f}%;width:{(100-ko_pos):.1f}%"></div>
+            <div class="bar-cursor"  style="left:{cur_pos:.1f}%"></div>
+          </div>
+          <div class="level-row">
+            <span style="color:#f59e0b">▼ KI {ki_pct:.0f}%  ${ki_p:.2f}</span>
+            <span style="color:#4ade80">— Strike {strike_pct:.0f}%  ${st_p:.2f}</span>
+            <span style="color:#f87171">▲ KO {ko_pct:.0f}%  ${ko_p:.2f}</span>
+          </div>
+        </div>'''
+
+    first_str = first_obs_date.strftime('%Y/%m/%d') if first_obs_date else '—'
+    last_str  = last_obs_date.strftime('%Y/%m/%d')  if last_obs_date  else '—'
+    days_txt  = ''
+    if first_obs_date:
+        d2f = (first_obs_date - date.today()).days
+        days_txt = f'（還有 {d2f} 天）' if d2f > 0 else '（比價進行中）'
+
+    html = f'''<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{font-family:"Noto Sans TC",system-ui,sans-serif;background:#0f172a;color:#f1f5f9;padding:20px;min-height:100vh}}
+  .header{{background:linear-gradient(135deg,#1e3a5f,#1e4080);padding:28px 24px;border-radius:14px;margin-bottom:16px}}
+  .header-sub{{color:#94a3b8;font-size:.85em;margin-bottom:8px}}
+  .header-title{{font-size:1.7em;font-weight:700;margin-bottom:12px;line-height:1.3}}
+  .header-info{{display:flex;flex-wrap:wrap;gap:16px;color:#cbd5e1;font-size:.9em}}
+  .header-info span::before{{content:"｜";margin-right:8px;color:#475569}}
+  .header-info span:first-child::before{{content:""}}
+  .levels{{display:flex;gap:12px;margin-bottom:16px}}
+  .level-chip{{padding:8px 16px;border-radius:8px;font-weight:600;font-size:.95em}}
+  .level-ko{{background:#450a0a;color:#f87171;border:1px solid #7f1d1d}}
+  .level-st{{background:#052e16;color:#4ade80;border:1px solid #14532d}}
+  .level-ki{{background:#451a03;color:#fb923c;border:1px solid #7c2d12}}
+  .section{{margin-bottom:16px}}
+  .section-title{{color:#94a3b8;font-size:.8em;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;padding-left:4px}}
+  table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden}}
+  th{{background:#0f172a;color:#94a3b8;font-size:.85em;padding:10px 16px;text-align:center}}
+  td{{padding:10px 16px;text-align:center;border-bottom:1px solid #334155;font-size:.95em}}
+  tr:last-child td{{border-bottom:none}}
+  .stock-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}}
+  .stock-card{{background:#1e293b;border-radius:12px;padding:20px}}
+  .stock-ticker{{color:#94a3b8;font-size:.85em;margin-bottom:4px}}
+  .stock-price{{font-size:2em;font-weight:700;margin-bottom:14px}}
+  .bar-wrap{{position:relative;height:14px;border-radius:7px;overflow:hidden;background:#334155;margin-bottom:10px}}
+  .bar-danger,.bar-warning,.bar-safe,.bar-ko{{position:absolute;top:0;height:100%}}
+  .bar-danger{{background:#7f1d1d}}
+  .bar-warning{{background:#78350f}}
+  .bar-safe{{background:#14532d}}
+  .bar-ko{{background:#166534}}
+  .bar-cursor{{position:absolute;top:-3px;width:4px;height:20px;background:#f1f5f9;border-radius:2px;transform:translateX(-50%)}}
+  .level-row{{display:flex;justify-content:space-between;font-size:.78em;flex-wrap:wrap;gap:4px}}
+  .legend-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}
+  .legend-card{{padding:18px;border-radius:10px}}
+  .legend-ko{{background:#450a0a;border:1px solid #7f1d1d}}
+  .legend-st{{background:#052e16;border:1px solid #14532d}}
+  .legend-ki{{background:#451a03;border:1px solid #7c2d12}}
+  .legend-label{{font-size:.78em;color:#94a3b8;margin-bottom:4px}}
+  .legend-badge{{font-size:1.1em;font-weight:700;margin-bottom:8px}}
+  .legend-text{{font-size:.82em;color:#cbd5e1;line-height:1.5}}
+  .footer{{text-align:center;color:#475569;font-size:.78em;margin-top:24px;padding-top:16px;border-top:1px solid #1e293b}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-sub">FCN 結構商品分析摘要　產出日期：{today_str}</div>
+  <div class="header-title">{title}</div>
+  <div class="header-info">
+    <span>年化率 {coupon_pa:.2f}%</span>
+    <span>月息 ${monthly_coupon_usd:,.0f} USD ≈ {monthly_coupon_twd:,} TWD</span>
+    <span>匯率 {fx_rate:.0f}</span>
+    <span>首比價日 {first_str} {days_txt}</span>
+    <span>末比價日 {last_str}</span>
+  </div>
+</div>
+
+<div class="levels">
+  <div class="level-chip level-ko">▲ KO 敲出 {ko_pct:.0f}%</div>
+  <div class="level-chip level-st">— Strike 執行 {strike_pct:.0f}%</div>
+  <div class="level-chip level-ki">▼ KI 保護 {ki_pct:.0f}%</div>
+</div>
+
+{'<div class="section"><div class="section-title">🗓️ 配息期程</div><table><thead><tr><th>期數</th><th>配息日</th><th>配息 (USD)</th><th>配息 (TWD)</th></tr></thead><tbody>' + period_rows_html + '</tbody></table></div>' if filled_periods else ''}
+
+{'<div class="section"><div class="section-title">📈 個股詳細卡片</div><div class="stock-grid">' + stock_cards_html + '</div></div>' if any(prices.get(t) for t in tickers) else ''}
+
+<div class="section">
+  <div class="section-title">📝 條件說明</div>
+  <div class="legend-grid">
+    <div class="legend-card legend-ko">
+      <div class="legend-label">KO 自動提前解構</div>
+      <div class="legend-badge" style="color:#f87171">▲ KO 敲出 {ko_pct:.0f}%</div>
+      <div class="legend-text">三檔標的皆高於KO，當天自動提前結束，返還本金＋當期配息及連結獎金。</div>
+    </div>
+    <div class="legend-card legend-st">
+      <div class="legend-label">Strike 執行價</div>
+      <div class="legend-badge" style="color:#4ade80">— Strike {strike_pct:.0f}%</div>
+      <div class="legend-text">到期時股價低於執行價，以此價格「接股」。以進場價比較，投資人損失差價。</div>
+    </div>
+    <div class="legend-card legend-ki">
+      <div class="legend-label">KI 保護價</div>
+      <div class="legend-badge" style="color:#fb923c">▼ KI 保護 {ki_pct:.0f}%</div>
+      <div class="legend-text">最差標的曾跌破KI，需再比較Strike才能確認本金是否損失，不一定損失。</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">本摘要僅供參考，不構成投資建議。ELN/FCN 為非保本商品，最大風險為本金全部損失。</div>
+</body>
+</html>'''
+    return html
+
+
 @st.cache_data(ttl=3600)
 def get_stock_data(ticker):
     try:
@@ -954,70 +1119,88 @@ if st.session_state.get('show_results'):
         df_compare = pd.DataFrame(comparison_data)
         st.dataframe(df_compare, use_container_width=True, hide_index=True)
 
-    # ══════════════════════════════════════
-    # 8️⃣  製圖工具
-    # ══════════════════════════════════════
-    st.divider()
-    st.markdown("## 🖼️ 製圖")
-    st.caption("勾選要放入圖片的區塊，再按「開始製圖」。第 3、4 區需先按「🚀 開始分析」才能顯示。")
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        sec_header  = st.checkbox("🏷️ 產品標題 & 基本資訊", value=True)
-        sec_periods = st.checkbox("🗓️ 配息期程表", value=True)
-        sec_legend  = st.checkbox("📝 KO / Strike / KI 條件說明", value=True)
-    with col_b:
-        sec_status  = st.checkbox("📊 整體狀況（需先分析）", value=True)
-        sec_stocks  = st.checkbox("📈 個股詳細卡片（需先分析）", value=True)
-
-    _sections = {
-        'header':  sec_header,
-        'periods': sec_periods,
-        'legend':  sec_legend,
-        'status':  sec_status,
-        'stocks':  sec_stocks,
-    }
-
-    if st.button("🖼️ 開始製圖", type="primary", use_container_width=True):
-        # 收集所有已分析標的的資料
-        _ticker_data = []
-        for _t in ticker_list:
-            _s = st.session_state.get(f'stats_{_t}')
-            _p = st.session_state.get(f'price_{_t}')
-            if _s and _p:
-                _ticker_data.append({
-                    'ticker': _t,
-                    'current_price': _p['current_price'],
-                    'safety_prob':   _s['safety_prob'],
-                    'positive_prob': _s['positive_prob'],
-                })
-        try:
-            _img = generate_fcn_image(
-                ticker_list, ko_pct, ki_pct, strike_pct,
-                coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
-                principal, first_obs_date, last_obs_date,
-                filled_periods, ticker_data=_ticker_data or None,
-                sections=_sections,
-            )
-            import base64 as _b64
-            _b64_str = _b64.b64encode(_img).decode()
-            _fn = f"FCN客戶圖_{date.today().strftime('%Y%m%d')}.png"
-            st.markdown(
-                f'<a href="data:image/png;base64,{_b64_str}" download="{_fn}" '
-                f'style="display:block;width:100%;text-align:center;padding:12px;'
-                f'background:#1e3a5f;color:white;border-radius:8px;font-weight:bold;'
-                f'text-decoration:none;font-size:1.05em;">📥 下載客戶圖片</a>',
-                unsafe_allow_html=True,
-            )
-            st.success("圖片已產出，點上方連結下載。")
-        except Exception as e:
-            st.error(f"製圖失敗：{e}")
-
 else:
     st.info("👈 請在左側設定參數，按下「開始分析」。")
     if st.sidebar.button("🔄 重置", help="清除分析結果，重新設定參數"):
         st.session_state['show_results'] = False
         st.rerun()
+
+# ══════════════════════════════════════
+# 7️⃣  生成網頁結果（永遠顯示）
+# ══════════════════════════════════════
+if st.session_state.get('fcn_page_html'):
+    st.divider()
+    st.markdown("## 🌐 公版頁面預覽")
+    import base64 as _b64
+    _html_content = st.session_state['fcn_page_html']
+    components.html(_html_content, height=900, scrolling=True)
+    _fn_html = f"FCN公版頁面_{date.today().strftime('%Y%m%d')}.html"
+    st.download_button(
+        "📥 下載 HTML 檔案（可傳給客戶或上傳至網頁）",
+        _html_content, _fn_html, "text/html",
+        use_container_width=True,
+    )
+    if st.button("🗑️ 清除預覽", use_container_width=True):
+        del st.session_state['fcn_page_html']
+        st.rerun()
+
+# ══════════════════════════════════════
+# 8️⃣  製圖工具（永遠顯示）
+# ══════════════════════════════════════
+st.divider()
+st.markdown("## 🖼️ 製圖")
+st.caption("勾選要放入圖片的區塊，再按「開始製圖」。📊 和 📈 兩區需先按「🚀 開始分析」才能顯示。")
+
+col_a, col_b = st.columns(2)
+with col_a:
+    sec_header  = st.checkbox("🏷️ 產品標題 & 基本資訊", value=True)
+    sec_periods = st.checkbox("🗓️ 配息期程表", value=True)
+    sec_legend  = st.checkbox("📝 KO / Strike / KI 條件說明", value=True)
+with col_b:
+    sec_status  = st.checkbox("📊 整體狀況（需先分析）", value=True)
+    sec_stocks  = st.checkbox("📈 個股詳細卡片（需先分析）", value=True)
+
+_sections = {
+    'header':  sec_header,
+    'periods': sec_periods,
+    'legend':  sec_legend,
+    'status':  sec_status,
+    'stocks':  sec_stocks,
+}
+
+if st.button("🖼️ 開始製圖", type="primary", use_container_width=True):
+    _ticker_data = []
+    for _t in ticker_list:
+        _s = st.session_state.get(f'stats_{_t}')
+        _p = st.session_state.get(f'price_{_t}')
+        if _s and _p:
+            _ticker_data.append({
+                'ticker': _t,
+                'current_price': _p['current_price'],
+                'safety_prob':   _s['safety_prob'],
+                'positive_prob': _s['positive_prob'],
+            })
+    try:
+        _img = generate_fcn_image(
+            ticker_list, ko_pct, ki_pct, strike_pct,
+            coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
+            principal, first_obs_date, last_obs_date,
+            filled_periods, ticker_data=_ticker_data or None,
+            sections=_sections,
+        )
+        import base64 as _b64
+        _b64_str = _b64.b64encode(_img).decode()
+        _fn = f"FCN客戶圖_{date.today().strftime('%Y%m%d')}.png"
+        st.markdown(
+            f'<a href="data:image/png;base64,{_b64_str}" download="{_fn}" '
+            f'style="display:block;width:100%;text-align:center;padding:12px;'
+            f'background:#1e3a5f;color:white;border-radius:8px;font-weight:bold;'
+            f'text-decoration:none;font-size:1.05em;">📥 下載客戶圖片</a>',
+            unsafe_allow_html=True,
+        )
+        st.success("圖片已產出，點上方連結下載。")
+    except Exception as e:
+        st.error(f"製圖失敗：{e}")
 
 # ── 免責聲明 ──
 st.markdown("""
