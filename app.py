@@ -1039,7 +1039,7 @@ if st.session_state.pop('trigger_image', False):
                 'safety_prob':   _s['safety_prob'],
                 'positive_prob': _s['positive_prob'],
             })
-    _sections = {'header': True, 'periods': True, 'legend': True, 'status': False, 'stocks': True}
+    _sections = {'header': True, 'periods': True, 'legend': True, 'status': True, 'stocks': True}
     try:
         _img = generate_fcn_image(
             _tl, ko_pct, ki_pct, strike_pct,
