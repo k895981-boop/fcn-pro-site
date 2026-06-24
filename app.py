@@ -150,21 +150,47 @@ FCN_PRODUCTS = {
 def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
                   principal, fx_rate, first_obs_date, last_obs_date,
                   filled_periods, monthly_coupon_usd, monthly_coupon_twd, prices,
-                  period_months=6):
-    today_str = date.today().strftime('%Y/%m/%d')
+                  period_months=6, guaranteed_months=1):
+    today      = date.today()
+    today_str  = today.strftime('%Y/%m/%d')
     _wan = int(principal // 10000) if principal >= 10000 else f'{int(principal):,}'
-    title = f'FCN {"/".join(tickers)}/{int(period_months)}個月/{_wan}萬USD'
+    _n_actual  = len(filled_periods) if filled_periods else int(period_months)
+    title = f'FCN {"/".join(tickers)}/{_n_actual}個月/{_wan}萬USD'
+
+    # 狀態標籤
+    if first_obs_date:
+        d2f = (first_obs_date - today).days
+        if d2f > 0:
+            status_badge = f'<span style="background:#f59e0b;color:#fff;padding:4px 14px;border-radius:20px;font-weight:700;font-size:.85em">⏳ 保證配息期（還有 {d2f} 天開始比價）</span>'
+        elif d2f == 0:
+            status_badge = '<span style="background:#3b82f6;color:#fff;padding:4px 14px;border-radius:20px;font-weight:700;font-size:.85em">🔔 今日為首個比價日</span>'
+        else:
+            status_badge = '<span style="background:#10b981;color:#fff;padding:4px 14px;border-radius:20px;font-weight:700;font-size:.85em">📊 比價觀察期進行中</span>'
+    else:
+        status_badge = ''
 
     period_rows_html = ''
+    _total_usd = 0
     for p in filled_periods:
         pay_str = p['pay'].strftime('%Y/%m/%d') if p.get('pay') else '—'
         twd = round(p['amount_usd'] * fx_rate)
+        _total_usd += p['amount_usd']
         period_rows_html += f'''
         <tr>
           <td>第 {p["t"]} 期</td>
           <td>{pay_str}</td>
           <td style="color:#4ade80">${p["amount_usd"]:,.0f}</td>
           <td style="color:#4ade80">{twd:,} TWD</td>
+        </tr>'''
+    # 合計列
+    if filled_periods:
+        _total_twd = round(_total_usd * fx_rate)
+        period_rows_html += f'''
+        <tr style="background:#0f172a;font-weight:700">
+          <td>配息全拿（共 {len(filled_periods)} 期）</td>
+          <td>合計</td>
+          <td style="color:#facc15">${_total_usd:,.0f}</td>
+          <td style="color:#facc15">{_total_twd:,} TWD</td>
         </tr>'''
 
     stock_cards_html = ''
@@ -272,12 +298,15 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
 <div class="header">
   <div class="header-sub">FCN 結構商品分析摘要　產出日期：{today_str}</div>
   <div class="header-title">{title}</div>
+  {f'<div style="margin-bottom:12px">{status_badge}</div>' if status_badge else ''}
   <div class="header-info">
+    <span>本金 ${principal:,.0f} USD</span>
     <span>年化率 {coupon_pa:.2f}%</span>
     <span>月息 ${monthly_coupon_usd:,.0f} USD ≈ {monthly_coupon_twd:,} TWD</span>
-    <span>匯率 {fx_rate:.0f}</span>
+    <span>匯率 {fx_rate:.2f}</span>
     <span>首比價日 {first_str} {days_txt}</span>
     <span>末比價日 {last_str}</span>
+    <span>保證配息前 {guaranteed_months} 個月</span>
   </div>
 </div>
 {periods_block}
@@ -317,7 +346,7 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
 # ==========================================
 
 # ── 1️⃣ 輸入標的 ──
-st.sidebar.caption("⚡ v3.3 — 2026-06-25")
+st.sidebar.caption("⚡ v3.4 — 2026-06-25")
 st.sidebar.header("1️⃣ 輸入標的")
 st.sidebar.caption("美股直接輸入代碼，台股請加 .TW（如 2330.TW）")
 _n_tickers = st.sidebar.number_input("檔數", min_value=1, max_value=6,
@@ -402,7 +431,7 @@ if st.sidebar.button("🌐 預覽", type="primary", use_container_width=True):
         _tlist, ko_pct, strike_pct, ki_pct, coupon_pa,
         principal, fx_rate, first_obs_date, last_obs_date,
         _filled, monthly_coupon_usd, monthly_coupon_twd, _prices,
-        period_months=period_months
+        guaranteed_months=guaranteed_months
     )
 if run_btn:
     st.session_state['show_results'] = True
@@ -604,7 +633,8 @@ def generate_fcn_image(
     # ── 1. 產品標題 & 基本資訊 ──
     if sections.get('header', True):
         _wan = int(principal // 10000) if principal >= 10000 else f'{int(principal):,}'
-        title = f'FCN {"/".join(tickers)}/{int(period_months)}個月/{_wan}萬USD'
+        _n_actual = len(filled_periods) if filled_periods else int(period_months)
+        title = f'FCN {"/".join(tickers)}/{_n_actual}個月/{_wan}萬USD'
 
         hdr_h = IP + hSM + 8 + hXL + 10 + hMD + IP
         d.rectangle([PAD, y, W-PAD, y+hdr_h], fill=_hex(DARK), outline=None)
