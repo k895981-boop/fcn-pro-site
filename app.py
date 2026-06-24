@@ -144,6 +144,173 @@ FCN_PRODUCTS = {
 }
 
 # ==========================================
+# 工具函數（必須在 sidebar 之前定義）
+# ==========================================
+
+def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
+                  principal, fx_rate, first_obs_date, last_obs_date,
+                  filled_periods, monthly_coupon_usd, monthly_coupon_twd, prices):
+    today_str = date.today().strftime('%Y/%m/%d')
+    ticker_str = ' + '.join(tickers)
+    title = f'FCN・{ticker_str}・{int(principal):,} USD'
+
+    period_rows_html = ''
+    for p in filled_periods:
+        pay_str = p['pay'].strftime('%Y/%m/%d') if p.get('pay') else '—'
+        twd = round(p['amount_usd'] * fx_rate)
+        period_rows_html += f'''
+        <tr>
+          <td>第 {p["t"]} 期</td>
+          <td>{pay_str}</td>
+          <td style="color:#4ade80">${p["amount_usd"]:,.0f}</td>
+          <td style="color:#4ade80">{twd:,} TWD</td>
+        </tr>'''
+
+    stock_cards_html = ''
+    for t in tickers:
+        cp = prices.get(t)
+        if cp:
+            ko_p = cp * ko_pct / 100
+            st_p = cp * strike_pct / 100
+            ki_p = cp * ki_pct / 100
+            rng_lo = ki_pct * 0.75; rng_hi = ko_pct * 1.25; rng = rng_hi - rng_lo
+            ki_pos  = (ki_pct     - rng_lo) / rng * 100
+            st_pos  = (strike_pct - rng_lo) / rng * 100
+            ko_pos  = (ko_pct     - rng_lo) / rng * 100
+            cur_pos = (100.0      - rng_lo) / rng * 100
+            price_display = f'${cp:.2f}'
+        else:
+            price_display = '載入中…'
+            ki_pos = st_pos = ko_pos = cur_pos = ko_p = st_p = ki_p = 0
+
+        stock_cards_html += f'''
+        <div class="stock-card">
+          <div class="stock-ticker">{t}</div>
+          <div class="stock-price">{price_display}</div>
+          <div class="bar-wrap">
+            <div class="bar-danger"  style="left:0;width:{ki_pos:.1f}%"></div>
+            <div class="bar-warning" style="left:{ki_pos:.1f}%;width:{(st_pos-ki_pos):.1f}%"></div>
+            <div class="bar-safe"    style="left:{st_pos:.1f}%;width:{(ko_pos-st_pos):.1f}%"></div>
+            <div class="bar-ko"      style="left:{ko_pos:.1f}%;width:{max(0,100-ko_pos):.1f}%"></div>
+            <div class="bar-cursor"  style="left:{cur_pos:.1f}%"></div>
+          </div>
+          <div class="level-row">
+            <span style="color:#f59e0b">▼ KI {ki_pct:.0f}%  ${ki_p:.2f}</span>
+            <span style="color:#4ade80">— Strike {strike_pct:.0f}%  ${st_p:.2f}</span>
+            <span style="color:#f87171">▲ KO {ko_pct:.0f}%  ${ko_p:.2f}</span>
+          </div>
+        </div>'''
+
+    first_str = first_obs_date.strftime('%Y/%m/%d') if first_obs_date else '—'
+    last_str  = last_obs_date.strftime('%Y/%m/%d')  if last_obs_date  else '—'
+    days_txt  = ''
+    if first_obs_date:
+        d2f = (first_obs_date - date.today()).days
+        days_txt = f'（還有 {d2f} 天）' if d2f > 0 else '（比價進行中）'
+
+    periods_block = (
+        '<div class="section"><div class="section-title">🗓️ 配息期程</div>'
+        '<table><thead><tr><th>期數</th><th>配息日</th><th>配息 (USD)</th><th>配息 (TWD)</th></tr></thead>'
+        f'<tbody>{period_rows_html}</tbody></table></div>'
+    ) if filled_periods else ''
+
+    stocks_block = (
+        '<div class="section"><div class="section-title">📈 個股詳細卡片</div>'
+        f'<div class="stock-grid">{stock_cards_html}</div></div>'
+    ) if any(prices.get(t) for t in tickers) else ''
+
+    return f'''<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{font-family:"Noto Sans TC",system-ui,sans-serif;background:#0f172a;color:#f1f5f9;padding:20px;min-height:100vh}}
+  .header{{background:linear-gradient(135deg,#1e3a5f,#1e4080);padding:28px 24px;border-radius:14px;margin-bottom:16px}}
+  .header-sub{{color:#94a3b8;font-size:.85em;margin-bottom:8px}}
+  .header-title{{font-size:1.7em;font-weight:700;margin-bottom:12px;line-height:1.3}}
+  .header-info{{display:flex;flex-wrap:wrap;gap:16px;color:#cbd5e1;font-size:.9em}}
+  .header-info span::before{{content:"｜";margin-right:8px;color:#475569}}
+  .header-info span:first-child::before{{content:""}}
+  .levels{{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}}
+  .level-chip{{padding:8px 16px;border-radius:8px;font-weight:600;font-size:.95em}}
+  .level-ko{{background:#450a0a;color:#f87171;border:1px solid #7f1d1d}}
+  .level-st{{background:#052e16;color:#4ade80;border:1px solid #14532d}}
+  .level-ki{{background:#451a03;color:#fb923c;border:1px solid #7c2d12}}
+  .section{{margin-bottom:16px}}
+  .section-title{{color:#94a3b8;font-size:.8em;letter-spacing:.1em;margin-bottom:8px;padding-left:4px}}
+  table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden}}
+  th{{background:#0f172a;color:#94a3b8;font-size:.85em;padding:10px 16px;text-align:center}}
+  td{{padding:10px 16px;text-align:center;border-bottom:1px solid #334155;font-size:.95em}}
+  tr:last-child td{{border-bottom:none}}
+  .stock-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}}
+  .stock-card{{background:#1e293b;border-radius:12px;padding:20px}}
+  .stock-ticker{{color:#94a3b8;font-size:.85em;margin-bottom:4px}}
+  .stock-price{{font-size:2em;font-weight:700;margin-bottom:14px}}
+  .bar-wrap{{position:relative;height:14px;border-radius:7px;overflow:hidden;background:#334155;margin-bottom:10px}}
+  .bar-danger,.bar-warning,.bar-safe,.bar-ko{{position:absolute;top:0;height:100%}}
+  .bar-danger{{background:#7f1d1d}}.bar-warning{{background:#78350f}}
+  .bar-safe{{background:#14532d}}.bar-ko{{background:#166534}}
+  .bar-cursor{{position:absolute;top:-3px;width:4px;height:20px;background:#f1f5f9;border-radius:2px;transform:translateX(-50%)}}
+  .level-row{{display:flex;justify-content:space-between;font-size:.78em;flex-wrap:wrap;gap:4px}}
+  .legend-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}
+  .legend-card{{padding:18px;border-radius:10px}}
+  .legend-ko{{background:#450a0a;border:1px solid #7f1d1d}}
+  .legend-st{{background:#052e16;border:1px solid #14532d}}
+  .legend-ki{{background:#451a03;border:1px solid #7c2d12}}
+  .legend-label{{font-size:.78em;color:#94a3b8;margin-bottom:4px}}
+  .legend-badge{{font-size:1.1em;font-weight:700;margin-bottom:8px}}
+  .legend-text{{font-size:.82em;color:#cbd5e1;line-height:1.5}}
+  .footer{{text-align:center;color:#475569;font-size:.78em;margin-top:24px;padding-top:16px;border-top:1px solid #1e293b}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-sub">FCN 結構商品分析摘要　產出日期：{today_str}</div>
+  <div class="header-title">{title}</div>
+  <div class="header-info">
+    <span>年化率 {coupon_pa:.2f}%</span>
+    <span>月息 ${monthly_coupon_usd:,.0f} USD ≈ {monthly_coupon_twd:,} TWD</span>
+    <span>匯率 {fx_rate:.0f}</span>
+    <span>首比價日 {first_str} {days_txt}</span>
+    <span>末比價日 {last_str}</span>
+  </div>
+</div>
+<div class="levels">
+  <div class="level-chip level-ko">▲ KO 敲出 {ko_pct:.0f}%</div>
+  <div class="level-chip level-st">— Strike 執行 {strike_pct:.0f}%</div>
+  <div class="level-chip level-ki">▼ KI 保護 {ki_pct:.0f}%</div>
+</div>
+{periods_block}
+{stocks_block}
+<div class="section">
+  <div class="section-title">📝 條件說明</div>
+  <div class="legend-grid">
+    <div class="legend-card legend-ko">
+      <div class="legend-label">KO 自動提前解構</div>
+      <div class="legend-badge" style="color:#f87171">▲ KO 敲出 {ko_pct:.0f}%</div>
+      <div class="legend-text">三檔標的皆高於KO，當天自動提前結束，返還本金＋當期配息及連結獎金。</div>
+    </div>
+    <div class="legend-card legend-st">
+      <div class="legend-label">Strike 執行價</div>
+      <div class="legend-badge" style="color:#4ade80">— Strike {strike_pct:.0f}%</div>
+      <div class="legend-text">到期時股價低於執行價，以此價格「接股」。以進場價比較，投資人損失差價。</div>
+    </div>
+    <div class="legend-card legend-ki">
+      <div class="legend-label">KI 保護價</div>
+      <div class="legend-badge" style="color:#fb923c">▼ KI 保護 {ki_pct:.0f}%</div>
+      <div class="legend-text">最差標的曾跌破KI，需再比較Strike才能確認本金是否損失，不一定損失。</div>
+    </div>
+  </div>
+</div>
+<div class="footer">本摘要僅供參考，不構成投資建議。ELN/FCN 為非保本商品，最大風險為本金全部損失。</div>
+</body>
+</html>'''
+
+
+# ==========================================
 # 側邊欄
 # ==========================================
 
@@ -232,170 +399,6 @@ if run_btn:
 # ==========================================
 # 核心函數
 # ==========================================
-
-def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
-                  principal, fx_rate, first_obs_date, last_obs_date,
-                  filled_periods, monthly_coupon_usd, monthly_coupon_twd, prices):
-    today_str = date.today().strftime('%Y/%m/%d')
-    ticker_str = ' + '.join(tickers)
-    title = f'FCN・{ticker_str}・{int(principal):,} USD'
-
-    # 配息期程 rows
-    period_rows_html = ''
-    for p in filled_periods:
-        pay_str = p['pay'].strftime('%Y/%m/%d') if p.get('pay') else '—'
-        twd = round(p['amount_usd'] * fx_rate)
-        period_rows_html += f'''
-        <tr>
-          <td>第 {p["t"]} 期</td>
-          <td>{pay_str}</td>
-          <td style="color:#4ade80">${p["amount_usd"]:,.0f}</td>
-          <td style="color:#4ade80">{twd:,} TWD</td>
-        </tr>'''
-
-    # 個股卡片
-    stock_cards_html = ''
-    for t in tickers:
-        cp = prices.get(t)
-        if cp:
-            ko_p  = cp * ko_pct  / 100
-            st_p  = cp * strike_pct / 100
-            ki_p  = cp * ki_pct  / 100
-            # price bar: range from ki_pct*0.75 to ko_pct*1.25
-            rng_lo = ki_pct * 0.75; rng_hi = ko_pct * 1.25; rng = rng_hi - rng_lo
-            ki_pos  = (ki_pct     - rng_lo) / rng * 100
-            st_pos  = (strike_pct - rng_lo) / rng * 100
-            ko_pos  = (ko_pct     - rng_lo) / rng * 100
-            cur_pos = (100.0      - rng_lo) / rng * 100
-            price_display = f'${cp:.2f}'
-        else:
-            price_display = '載入中…'
-            ki_pos = st_pos = ko_pos = cur_pos = 0
-            ko_p = st_p = ki_p = 0
-
-        stock_cards_html += f'''
-        <div class="stock-card">
-          <div class="stock-ticker">{t}</div>
-          <div class="stock-price">{price_display}</div>
-          <div class="bar-wrap">
-            <div class="bar-danger"  style="left:0;width:{ki_pos:.1f}%"></div>
-            <div class="bar-warning" style="left:{ki_pos:.1f}%;width:{(st_pos-ki_pos):.1f}%"></div>
-            <div class="bar-safe"    style="left:{st_pos:.1f}%;width:{(ko_pos-st_pos):.1f}%"></div>
-            <div class="bar-ko"      style="left:{ko_pos:.1f}%;width:{(100-ko_pos):.1f}%"></div>
-            <div class="bar-cursor"  style="left:{cur_pos:.1f}%"></div>
-          </div>
-          <div class="level-row">
-            <span style="color:#f59e0b">▼ KI {ki_pct:.0f}%  ${ki_p:.2f}</span>
-            <span style="color:#4ade80">— Strike {strike_pct:.0f}%  ${st_p:.2f}</span>
-            <span style="color:#f87171">▲ KO {ko_pct:.0f}%  ${ko_p:.2f}</span>
-          </div>
-        </div>'''
-
-    first_str = first_obs_date.strftime('%Y/%m/%d') if first_obs_date else '—'
-    last_str  = last_obs_date.strftime('%Y/%m/%d')  if last_obs_date  else '—'
-    days_txt  = ''
-    if first_obs_date:
-        d2f = (first_obs_date - date.today()).days
-        days_txt = f'（還有 {d2f} 天）' if d2f > 0 else '（比價進行中）'
-
-    html = f'''<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{title}</title>
-<style>
-  *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{font-family:"Noto Sans TC",system-ui,sans-serif;background:#0f172a;color:#f1f5f9;padding:20px;min-height:100vh}}
-  .header{{background:linear-gradient(135deg,#1e3a5f,#1e4080);padding:28px 24px;border-radius:14px;margin-bottom:16px}}
-  .header-sub{{color:#94a3b8;font-size:.85em;margin-bottom:8px}}
-  .header-title{{font-size:1.7em;font-weight:700;margin-bottom:12px;line-height:1.3}}
-  .header-info{{display:flex;flex-wrap:wrap;gap:16px;color:#cbd5e1;font-size:.9em}}
-  .header-info span::before{{content:"｜";margin-right:8px;color:#475569}}
-  .header-info span:first-child::before{{content:""}}
-  .levels{{display:flex;gap:12px;margin-bottom:16px}}
-  .level-chip{{padding:8px 16px;border-radius:8px;font-weight:600;font-size:.95em}}
-  .level-ko{{background:#450a0a;color:#f87171;border:1px solid #7f1d1d}}
-  .level-st{{background:#052e16;color:#4ade80;border:1px solid #14532d}}
-  .level-ki{{background:#451a03;color:#fb923c;border:1px solid #7c2d12}}
-  .section{{margin-bottom:16px}}
-  .section-title{{color:#94a3b8;font-size:.8em;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;padding-left:4px}}
-  table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden}}
-  th{{background:#0f172a;color:#94a3b8;font-size:.85em;padding:10px 16px;text-align:center}}
-  td{{padding:10px 16px;text-align:center;border-bottom:1px solid #334155;font-size:.95em}}
-  tr:last-child td{{border-bottom:none}}
-  .stock-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}}
-  .stock-card{{background:#1e293b;border-radius:12px;padding:20px}}
-  .stock-ticker{{color:#94a3b8;font-size:.85em;margin-bottom:4px}}
-  .stock-price{{font-size:2em;font-weight:700;margin-bottom:14px}}
-  .bar-wrap{{position:relative;height:14px;border-radius:7px;overflow:hidden;background:#334155;margin-bottom:10px}}
-  .bar-danger,.bar-warning,.bar-safe,.bar-ko{{position:absolute;top:0;height:100%}}
-  .bar-danger{{background:#7f1d1d}}
-  .bar-warning{{background:#78350f}}
-  .bar-safe{{background:#14532d}}
-  .bar-ko{{background:#166534}}
-  .bar-cursor{{position:absolute;top:-3px;width:4px;height:20px;background:#f1f5f9;border-radius:2px;transform:translateX(-50%)}}
-  .level-row{{display:flex;justify-content:space-between;font-size:.78em;flex-wrap:wrap;gap:4px}}
-  .legend-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}
-  .legend-card{{padding:18px;border-radius:10px}}
-  .legend-ko{{background:#450a0a;border:1px solid #7f1d1d}}
-  .legend-st{{background:#052e16;border:1px solid #14532d}}
-  .legend-ki{{background:#451a03;border:1px solid #7c2d12}}
-  .legend-label{{font-size:.78em;color:#94a3b8;margin-bottom:4px}}
-  .legend-badge{{font-size:1.1em;font-weight:700;margin-bottom:8px}}
-  .legend-text{{font-size:.82em;color:#cbd5e1;line-height:1.5}}
-  .footer{{text-align:center;color:#475569;font-size:.78em;margin-top:24px;padding-top:16px;border-top:1px solid #1e293b}}
-</style>
-</head>
-<body>
-<div class="header">
-  <div class="header-sub">FCN 結構商品分析摘要　產出日期：{today_str}</div>
-  <div class="header-title">{title}</div>
-  <div class="header-info">
-    <span>年化率 {coupon_pa:.2f}%</span>
-    <span>月息 ${monthly_coupon_usd:,.0f} USD ≈ {monthly_coupon_twd:,} TWD</span>
-    <span>匯率 {fx_rate:.0f}</span>
-    <span>首比價日 {first_str} {days_txt}</span>
-    <span>末比價日 {last_str}</span>
-  </div>
-</div>
-
-<div class="levels">
-  <div class="level-chip level-ko">▲ KO 敲出 {ko_pct:.0f}%</div>
-  <div class="level-chip level-st">— Strike 執行 {strike_pct:.0f}%</div>
-  <div class="level-chip level-ki">▼ KI 保護 {ki_pct:.0f}%</div>
-</div>
-
-{'<div class="section"><div class="section-title">🗓️ 配息期程</div><table><thead><tr><th>期數</th><th>配息日</th><th>配息 (USD)</th><th>配息 (TWD)</th></tr></thead><tbody>' + period_rows_html + '</tbody></table></div>' if filled_periods else ''}
-
-{'<div class="section"><div class="section-title">📈 個股詳細卡片</div><div class="stock-grid">' + stock_cards_html + '</div></div>' if any(prices.get(t) for t in tickers) else ''}
-
-<div class="section">
-  <div class="section-title">📝 條件說明</div>
-  <div class="legend-grid">
-    <div class="legend-card legend-ko">
-      <div class="legend-label">KO 自動提前解構</div>
-      <div class="legend-badge" style="color:#f87171">▲ KO 敲出 {ko_pct:.0f}%</div>
-      <div class="legend-text">三檔標的皆高於KO，當天自動提前結束，返還本金＋當期配息及連結獎金。</div>
-    </div>
-    <div class="legend-card legend-st">
-      <div class="legend-label">Strike 執行價</div>
-      <div class="legend-badge" style="color:#4ade80">— Strike {strike_pct:.0f}%</div>
-      <div class="legend-text">到期時股價低於執行價，以此價格「接股」。以進場價比較，投資人損失差價。</div>
-    </div>
-    <div class="legend-card legend-ki">
-      <div class="legend-label">KI 保護價</div>
-      <div class="legend-badge" style="color:#fb923c">▼ KI 保護 {ki_pct:.0f}%</div>
-      <div class="legend-text">最差標的曾跌破KI，需再比較Strike才能確認本金是否損失，不一定損失。</div>
-    </div>
-  </div>
-</div>
-
-<div class="footer">本摘要僅供參考，不構成投資建議。ELN/FCN 為非保本商品，最大風險為本金全部損失。</div>
-</body>
-</html>'''
-    return html
-
 
 @st.cache_data(ttl=3600)
 def get_stock_data(ticker):
@@ -766,138 +769,6 @@ def generate_fcn_image(
     img.save(buf, format='PNG')
     buf.seek(0)
     return buf.getvalue()
-
-
-def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
-                  principal, fx_rate, first_obs_date, last_obs_date,
-                  filled_periods, monthly_coupon_usd, monthly_coupon_twd, prices_dict):
-    today     = date.today()
-    today_str = today.strftime('%Y/%m/%d')
-    last_str  = last_obs_date.strftime('%Y/%m/%d') if last_obs_date else '—'
-    ticker_str = '・'.join(tickers)
-    p_wan      = principal * fx_rate / 10000
-    monthly_pct = coupon_pa / 12
-
-    # ── 配息期程 rows ──
-    cur_t = None
-    for p in filled_periods:
-        if p.get('pay') and p['pay'] >= today:
-            cur_t = p['t']; break
-
-    rows_html = ''
-    for p in filled_periods:
-        is_cur = (p['t'] == cur_t)
-        cls    = ' class="cur"' if is_cur else ''
-        arrow  = '▶ ' if is_cur else ''
-        pay    = p['pay'].strftime('%Y/%m/%d') if p.get('pay') else '—'
-        usd    = p.get('amount_usd', monthly_coupon_usd)
-        twd    = round(usd * fx_rate)
-        rows_html += f'<tr{cls}><td>{arrow}{p["t"]}</td><td>—</td><td>—</td><td>—</td><td>{pay}</td><td class="amt">${usd:,.0f} USD　{twd/10000:.1f}萬台幣</td></tr>'
-
-    total_usd = sum(p.get('amount_usd', monthly_coupon_usd) for p in filled_periods)
-    total_twd = round(total_usd * fx_rate)
-
-    # ── 股票卡片 ──
-    cards_html = ''
-    for ticker in tickers:
-        cp = prices_dict.get(ticker)
-        if cp:
-            ko_p   = cp * ko_pct / 100
-            st_p   = cp * strike_pct / 100
-            ki_p   = cp * ki_pct / 100
-            d_ko   = ko_pct - 100
-            d_st   = strike_pct - 100
-            d_ki   = ki_pct - 100
-            rng    = ko_pct - ki_pct
-            pos    = (100 - ki_pct) / rng * 100 if rng > 0 else 50
-            ko_col = 'green' if d_ko >= 0 else 'red'
-            st_col = 'green' if d_st >= 0 else 'red'
-            cards_html += f'''
-            <div class="card">
-              <div class="card-hdr">
-                <div><div class="cticker">{ticker}</div><div class="csub">最新股價</div></div>
-                <span class="ctag">正常</span>
-              </div>
-              <div class="card-body">
-                <div class="cprice">${cp:.2f}</div>
-                <div class="csub2">以當前價格為 100% 基準</div>
-                <div class="prog-wrap"><div class="prog-fill"></div><div class="prog-dot" style="left:{pos:.1f}%"></div></div>
-                <div class="mets">
-                  <div class="m ko"><div class="ml">距 KO ({ko_pct:.0f}%)</div>
-                    <div class="mv {ko_col}">{("+" if d_ko>=0 else "")}{d_ko:.1f}%</div>
-                    <div class="mp">${ko_p:.2f}</div></div>
-                  <div class="m st"><div class="ml">距 Strike ({strike_pct:.0f}%)</div>
-                    <div class="mv {st_col}">{("+" if d_st>=0 else "")}{d_st:.1f}%</div>
-                    <div class="mp">${st_p:.2f}</div></div>
-                  <div class="m ki"><div class="ml">距 KI ({ki_pct:.0f}%)</div>
-                    <div class="mv amber">{("+" if d_ki>=0 else "")}{d_ki:.1f}%</div>
-                    <div class="mp">${ki_p:.2f}</div></div>
-                </div>
-              </div>
-            </div>'''
-        else:
-            cards_html += f'<div class="card"><div class="card-hdr"><div class="cticker">{ticker}</div></div><div class="card-body" style="color:#aaa">股價載入失敗</div></div>'
-
-    return f'''<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-*{{box-sizing:border-box}}body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","微軟正黑體",sans-serif;margin:0;background:#f5f7fa;color:#333}}
-.wrap{{padding:12px}}
-.hdr{{background:#1a2d42;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0}}
-.pname{{font-size:1.2em;font-weight:bold;margin-bottom:6px}}
-.meta{{display:flex;flex-wrap:wrap;gap:14px;font-size:.78em;color:#9eb3c8}}
-.tbl-wrap{{background:#fff;border:1px solid #e0e0e0;border-radius:0 0 6px 6px;margin-bottom:12px}}
-.sec-lbl{{padding:8px 16px;font-size:.82em;font-weight:600;color:#555;background:#f5f5f5;border-bottom:1px solid #e0e0e0}}
-table{{width:100%;border-collapse:collapse;font-size:.82em}}
-th{{padding:7px 12px;color:#777;text-align:left;background:#fafafa;border-bottom:1px solid #e0e0e0}}
-td{{padding:7px 12px;border-bottom:1px solid #f0f0f0}}
-tr.cur{{background:#f0fff4;font-weight:600}}tr.cur td{{color:#155724}}
-.amt{{color:#c0392b;font-weight:bold}}
-tfoot td{{padding:8px 12px;background:#f9f9f9;font-weight:bold;border-top:2px solid #ddd}}
-.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-bottom:12px}}
-.card{{background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden}}
-.card-hdr{{padding:10px 14px;background:#fafafa;border-bottom:1px solid #ebebeb;display:flex;justify-content:space-between;align-items:flex-start}}
-.cticker{{font-weight:bold;font-size:1.05em}}.csub{{font-size:.72em;color:#888;margin-top:2px}}
-.ctag{{font-size:.72em;padding:2px 8px;border-radius:10px;background:#e8f5e9;color:#2e7d32}}
-.card-body{{padding:12px 14px}}
-.cprice{{font-size:1.5em;font-weight:bold;color:#1a2d42}}.csub2{{font-size:.75em;color:#888;margin-bottom:10px}}
-.prog-wrap{{position:relative;height:8px;background:#eee;border-radius:4px;margin:6px 0 14px}}
-.prog-fill{{height:100%;background:linear-gradient(to right,#ef5350 0%,#ffd54f 50%,#66bb6a 100%);border-radius:4px;width:100%}}
-.prog-dot{{position:absolute;top:-4px;width:4px;height:16px;background:#333;border-radius:2px;transform:translateX(-50%)}}
-.mets{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}}
-.m{{padding:7px 6px;border-radius:5px;text-align:center}}.ko{{background:#fef2f2}}.st{{background:#f0fdf4}}.ki{{background:#fffbeb}}
-.ml{{font-size:.68em;color:#888;margin-bottom:2px}}.mv{{font-size:1em;font-weight:bold}}.mp{{font-size:.7em;color:#aaa}}
-.green{{color:#16a34a}}.red{{color:#dc2626}}.amber{{color:#d97706}}
-.bars{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}}
-.bar{{padding:10px 14px;border-radius:6px;font-size:.8em}}
-.bar.ko2{{background:#f0fdf4;border:1px solid #86efac}}.bar.st2{{background:#fffbeb;border:1px solid #fcd34d}}.bar.ki2{{background:#fef2f2;border:1px solid #fca5a5}}
-.bt{{font-weight:bold;margin-bottom:4px}}.bd{{color:#555;line-height:1.5}}
-.foot{{text-align:right;font-size:.72em;color:#aaa;margin-top:10px}}
-</style></head><body><div class="wrap">
-<div class="hdr">
-  <div style="font-size:.72em;color:#9eb3c8">FCN 即時監控</div>
-  <div class="pname">FCN 自動提前贖回 FCN・{ticker_str}・{principal:,.0f} USD</div>
-  <div class="meta">
-    <span>交易日 {today_str}</span><span>到期日 {last_str}</span>
-    <span>年化息率 {coupon_pa:.2f}%</span>
-    <span>月息 {monthly_pct:.2f}% × {p_wan:.1f}萬台幣（匯率{fx_rate:.0f}）</span>
-    <span>KO觀測 首比價日起</span><span>幣別 USD</span>
-  </div>
-</div>
-<div class="tbl-wrap">
-  <div class="sec-lbl">📅 配息期程</div>
-  <table><thead><tr><th>期</th><th>觀察起日</th><th>觀察結束日</th><th>比價日</th><th>配息日</th><th>預計配息</th></tr></thead>
-  <tbody>{rows_html}</tbody>
-  <tfoot><tr><td colspan="5">合計（{len(filled_periods)}期全領）</td>
-    <td><span class="amt">${total_usd:,.0f} USD　{total_twd/10000:.1f}萬台幣（匯率{fx_rate:.0f}）</span></td></tr></tfoot>
-  </table>
-</div>
-<div class="cards">{cards_html}</div>
-<div class="bars">
-  <div class="bar ko2"><div class="bt">🟢 KO 自動提前贖回</div><div class="bd">三檔標的皆超過比價基準，產品在比價日自動贖回，可拿到本期配息及連結獎金。</div></div>
-  <div class="bar st2"><div class="bt">🟡 Strike 執行價</div><div class="bd">到期時若最差標的介於Strike和KI之間，以此買進最差標的，票面本金不受影響。</div></div>
-  <div class="bar ki2"><div class="bt">🔴 KI 保護價</div><div class="bd">若最差標的曾跌破KI，到期時需以Strike買進最差標的，本金可能損失。</div></div>
-</div>
-<div class="foot">結構商品全能工作站・{today_str}</div>
-</div></body></html>'''
 
 
 def show_tradingview(symbol):
