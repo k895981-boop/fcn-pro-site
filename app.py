@@ -443,7 +443,7 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
 # ==========================================
 
 # ── 1️⃣ 輸入標的 ──
-st.sidebar.caption("⚡ v3.7 — 2026-06-25")
+st.sidebar.caption("⚡ v3.8 — 2026-06-25")
 st.sidebar.header("1️⃣ 輸入標的")
 st.sidebar.caption("美股直接輸入代碼，台股請加 .TW（如 2330.TW）")
 _n_tickers = st.sidebar.number_input("檔數", min_value=1, max_value=6,
@@ -733,20 +733,25 @@ def generate_fcn_image(
         _n_actual = len(filled_periods) if filled_periods else int(period_months)
         title = f'FCN {"/".join(tickers)}/{_n_actual}個月/{_wan}萬USD'
 
-        hdr_h = IP + hSM + 8 + hXL + 10 + hMD + IP
-        d.rectangle([PAD, y, W-PAD, y+hdr_h], fill=_hex(DARK), outline=None)
-        d.text((PAD+IP, y+IP), '結構商品全能工作站  FCN/ELN 分析摘要', font=fSM, fill=_hex('#94a3b8'))
-        d.text((PAD+IP, y+IP+hSM+8), title, font=fXL, fill=_hex(WHITE))
         _total_usd = sum(p['amount_usd'] for p in filled_periods) if filled_periods else 0
         _total_twd = round(_total_usd * fx_rate)
         _n_p = len(filled_periods)
+        # 每個資訊項目獨立一行，避免拼接後超寬
         info_parts = []
-        if first_obs_date: info_parts.append(f'首比價日 {first_obs_date.strftime("%Y/%m/%d")}')
-        if last_obs_date:  info_parts.append(f'末比價日 {last_obs_date.strftime("%Y/%m/%d")}')
-        info_parts += [f'年化率 {coupon_pa:.2f}%',
-                       f'月息 {monthly_coupon_usd:,.0f} USD ≈ {monthly_coupon_twd:,} TWD（匯率{fx_rate:.0f}）']
-        if _n_p: info_parts.append(f'共 {_n_p} 期  總配息 ${_total_usd:,.0f} USD ≈ {_total_twd:,} TWD')
-        d.text((PAD+IP, y+IP+hSM+8+hXL+10), '   ｜   '.join(info_parts), font=fMD, fill=_hex('#cbd5e1'))
+        if first_obs_date and last_obs_date:
+            info_parts.append(f'首比價日 {first_obs_date.strftime("%Y/%m/%d")}   末比價日 {last_obs_date.strftime("%Y/%m/%d")}')
+        info_parts.append(f'年化率 {coupon_pa:.2f}%   月息 ${monthly_coupon_usd:,.0f} USD ≈ {monthly_coupon_twd:,} TWD（匯率 {fx_rate:.0f}）')
+        if _n_p:
+            info_parts.append(f'共 {_n_p} 期   配息全拿合計 ${_total_usd:,.0f} USD ≈ {_total_twd:,} TWD')
+
+        hdr_h = IP + hSM + 8 + hXL + 10 + (hSM + 5) * len(info_parts) + IP
+        d.rectangle([PAD, y, W-PAD, y+hdr_h], fill=_hex(DARK), outline=None)
+        d.text((PAD+IP, y+IP), '結構商品全能工作站  FCN/ELN 分析摘要', font=fSM, fill=_hex('#94a3b8'))
+        d.text((PAD+IP, y+IP+hSM+8), title, font=fXL, fill=_hex(WHITE))
+        _iy = y + IP + hSM + 8 + hXL + 10
+        for item in info_parts:
+            d.text((PAD+IP, _iy), item, font=fSM, fill=_hex('#cbd5e1'))
+            _iy += hSM + 5
         y += hdr_h + GAP
 
         # KO / Strike / KI 一行
