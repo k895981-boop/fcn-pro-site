@@ -149,10 +149,11 @@ FCN_PRODUCTS = {
 
 def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
                   principal, fx_rate, first_obs_date, last_obs_date,
-                  filled_periods, monthly_coupon_usd, monthly_coupon_twd, prices):
+                  filled_periods, monthly_coupon_usd, monthly_coupon_twd, prices,
+                  period_months=6):
     today_str = date.today().strftime('%Y/%m/%d')
-    ticker_str = ' + '.join(tickers)
-    title = f'FCN・{ticker_str}・{int(principal):,} USD'
+    _wan = int(principal // 10000) if principal >= 10000 else f'{int(principal):,}'
+    title = f'FCN {"/".join(tickers)}/{int(period_months)}個月/{_wan}萬USD'
 
     period_rows_html = ''
     for p in filled_periods:
@@ -279,7 +280,7 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
   </div>
 </div>
 <div class="levels">
-  <div class="level-chip level-ko">▲ KO 敲出 {ko_pct:.0f}%</div>
+  <div class="level-chip level-ko">出場價 {ko_pct:.0f}%</div>
   <div class="level-chip level-st">— Strike 執行 {strike_pct:.0f}%</div>
   <div class="level-chip level-ki">▼ KI 保護 {ki_pct:.0f}%</div>
 </div>
@@ -289,19 +290,19 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
   <div class="section-title">📝 條件說明</div>
   <div class="legend-grid">
     <div class="legend-card legend-ko">
-      <div class="legend-label">KO 自動提前解構</div>
-      <div class="legend-badge" style="color:#f87171">▲ KO 敲出 {ko_pct:.0f}%</div>
-      <div class="legend-text">三檔標的皆高於KO，當天自動提前結束，返還本金＋當期配息及連結獎金。</div>
+      <div class="legend-label">KO 自動提前回固</div>
+      <div class="legend-badge" style="color:#f87171">出場價 {ko_pct:.0f}%</div>
+      <div class="legend-text">三檔標的皆超標，產品自動結束，拿回本金＋已累積配息。只要有一檔未達標，當天就不解構。</div>
     </div>
     <div class="legend-card legend-st">
       <div class="legend-label">Strike 執行價</div>
       <div class="legend-badge" style="color:#4ade80">— Strike {strike_pct:.0f}%</div>
-      <div class="legend-text">到期時股價低於執行價，以此價格「接股」。以進場價比較，投資人損失差價。</div>
+      <div class="legend-text">到期時若最差標的低於此值，將以此價格買進最差標的股票，用以返還本金。</div>
     </div>
     <div class="legend-card legend-ki">
       <div class="legend-label">KI 保護價</div>
       <div class="legend-badge" style="color:#fb923c">▼ KI 保護 {ki_pct:.0f}%</div>
-      <div class="legend-text">最差標的曾跌破KI，需再比較Strike才能確認本金是否損失，不一定損失。</div>
+      <div class="legend-text">若任一比價日任一檔低於 KI 值，到期時將以執行價（Strike）買進最差標的股票，到期日前若未跌破，不在此限。</div>
     </div>
   </div>
 </div>
@@ -326,15 +327,20 @@ tickers_input = st.sidebar.text_area(
 st.sidebar.divider()
 st.sidebar.header("2️⃣ 結構條件 (%)")
 st.sidebar.info("以該期「進場價」為 100% 基準：")
-ko_pct     = st.sidebar.number_input("KO（敲出價 %）",     key='w_ko_pct',     value=st.session_state.get('w_ko_pct',     100.0), step=0.5,  format="%.1f")
-strike_pct = st.sidebar.number_input("Strike（執行價 %）", key='w_strike_pct', value=st.session_state.get('w_strike_pct', 80.0),  step=1.0,  format="%.1f")
-ki_pct     = st.sidebar.number_input("KI（下檔保護 %）",   key='w_ki_pct',     value=st.session_state.get('w_ki_pct',     65.0),  step=1.0,  format="%.1f")
+ko_pct     = st.sidebar.number_input("KO 出廠價（%）",      key='w_ko_pct',     value=st.session_state.get('w_ko_pct',     100.0), step=0.5,  format="%.1f")
+strike_pct = st.sidebar.number_input("Strike 執行價（%）",  key='w_strike_pct', value=st.session_state.get('w_strike_pct', 80.0),  step=1.0,  format="%.1f")
+ki_pct     = st.sidebar.number_input("KI 保護價（%）",      key='w_ki_pct',     value=st.session_state.get('w_ki_pct',     65.0),  step=1.0,  format="%.1f")
 ko_memory  = st.sidebar.checkbox("KO Memory 模式（記憶型敲出）", value=False)
 
 st.sidebar.divider()
 st.sidebar.header("3️⃣ 產品時程設定")
-first_obs_date    = st.sidebar.date_input("首個比價日", value=st.session_state.get('w_first_obs', None), key='w_first_obs')
-last_obs_date     = st.sidebar.date_input("最後比價日", value=st.session_state.get('w_last_obs',  None), key='w_last_obs')
+_first_days = st.sidebar.number_input("首個比價日（距今天數）", min_value=0, max_value=730,
+                                       value=int(st.session_state.get('w_first_days', 12)), step=1, key='w_first_days')
+_last_days  = st.sidebar.number_input("最後比價日（距今天數）", min_value=0, max_value=730,
+                                       value=int(st.session_state.get('w_last_days', 103)), step=1, key='w_last_days')
+first_obs_date = date.today() + timedelta(days=int(_first_days))
+last_obs_date  = date.today() + timedelta(days=int(_last_days))
+st.sidebar.caption(f"首個比價日：{first_obs_date.strftime('%Y/%m/%d')}　最後：{last_obs_date.strftime('%Y/%m/%d')}")
 guaranteed_months = st.sidebar.number_input("保證配息期（月）", min_value=0, max_value=12,
                                              value=int(st.session_state.get('w_guar_months', 1)), step=1, key='w_guar_months')
 
@@ -363,8 +369,11 @@ n_periods = st.sidebar.number_input("期數", min_value=1, max_value=24,
 periods = []
 for i in range(int(n_periods)):
     with st.sidebar.expander(f"第 {i+1} 期", expanded=(i == 0)):
-        p_pay = st.date_input(f"配息日", value=st.session_state.get(f'pp_{i}', None), key=f"pp_{i}")
-        st.caption(f"預計配息：${monthly_coupon_usd:,.2f} USD ≈ {round(monthly_coupon_usd * fx_rate):,} TWD")
+        _pay_days = st.number_input(f"配息日（距今天數）", min_value=0, max_value=730,
+                                    value=int(st.session_state.get(f'pp_days_{i}', (i+1)*30)),
+                                    step=1, key=f"pp_days_{i}")
+        p_pay = date.today() + timedelta(days=int(_pay_days))
+        st.caption(f"配息日：{p_pay.strftime('%Y/%m/%d')}　預計配息：${monthly_coupon_usd:,.2f} USD ≈ {round(monthly_coupon_usd * fx_rate):,} TWD")
         periods.append({"t": i+1, "start": None, "end": None, "pay": p_pay, "amount_usd": monthly_coupon_usd})
 
 filled_periods = [p for p in periods if p.get('pay')]
@@ -378,8 +387,8 @@ period_months = st.sidebar.number_input("觀察天期（月）", min_value=1.0, 
 run_btn = st.sidebar.button("🚀 開始分析", type="primary")
 
 st.sidebar.divider()
-st.sidebar.header("7️⃣ 生成網頁")
-if st.sidebar.button("🌐 生成網頁", type="primary", use_container_width=True):
+st.sidebar.header("7️⃣ 生成")
+if st.sidebar.button("🌐 生成", type="primary", use_container_width=True):
     _tlist  = [t.strip().upper() for t in tickers_input.split(',') if t.strip()]
     _prices = {}
     for _t in _tlist:
@@ -391,7 +400,8 @@ if st.sidebar.button("🌐 生成網頁", type="primary", use_container_width=Tr
     st.session_state['fcn_page_html'] = _gen_fcn_html(
         _tlist, ko_pct, strike_pct, ki_pct, coupon_pa,
         principal, fx_rate, first_obs_date, last_obs_date,
-        _filled, monthly_coupon_usd, monthly_coupon_twd, _prices
+        _filled, monthly_coupon_usd, monthly_coupon_twd, _prices,
+        period_months=period_months
     )
 if run_btn:
     st.session_state['show_results'] = True
@@ -553,7 +563,7 @@ def generate_fcn_image(
     tickers, ko_pct, ki_pct, strike_pct,
     coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
     principal, first_obs_date, last_obs_date,
-    filled_periods, ticker_data=None, sections=None,
+    filled_periods, ticker_data=None, sections=None, period_months=6,
 ):
     """
     ticker_data: list of {ticker, current_price, safety_prob, positive_prob} — optional
@@ -587,8 +597,8 @@ def generate_fcn_image(
 
     # ── 1. 產品標題 & 基本資訊 ──
     if sections.get('header', True):
-        ticker_str = ' + '.join(tickers)
-        title = f'FCN・{ticker_str}・{int(principal):,} USD'
+        _wan = int(principal // 10000) if principal >= 10000 else f'{int(principal):,}'
+        title = f'FCN {"/".join(tickers)}/{int(period_months)}個月/{_wan}萬USD'
 
         hdr_h = IP + hSM + 8 + hXL + 10 + hMD + IP
         d.rectangle([PAD, y, W-PAD, y+hdr_h], fill=_hex(DARK), outline=None)
@@ -607,7 +617,7 @@ def generate_fcn_image(
         _rect(d, PAD, y, W-PAD, y+bar_h, _hex('#eff6ff'), outline='#bfdbfe', radius=8)
         ky = y + IP
         for offset, label, col in [
-            (0,   f'▲ KO 敲出  {ko_pct:.0f}%',     '#dc2626'),
+            (0,   f'出場價 {ko_pct:.0f}%',           '#dc2626'),
             (360, f'— Strike 執行  {strike_pct:.0f}%', '#16a34a'),
             (720, f'▼ KI 保護  {ki_pct:.0f}%',      '#d97706'),
         ]:
@@ -741,12 +751,12 @@ def generate_fcn_image(
     if sections.get('legend', True):
         sec_title('📝  條件說明')
         leg_data = [
-            ('KO 自動提前解構', '▲ KO 敲出', '#dc2626', '#fff1f2', '#fecaca',
-             '三檔標的皆高於KO，當天自動提前結束，', '返還本金＋當期配息及連結獎金。'),
-            ('Strike 執行價', '— Strike', '#16a34a', '#f0fdf4', '#bbf7d0',
-             '到期時若股價低於執行價，以此價格「接股」。', '以進場價比較，投資人損失差價。'),
-            ('KI 保護價', '▼ KI 保護', '#d97706', '#fffbeb', '#fde68a',
-             '最差標的曾跌破KI，需再比較Strike才能', '確認本金是否損失，不一定損失。'),
+            ('KO 自動提前回固', f'出場價 {ko_pct:.0f}%', '#dc2626', '#fff1f2', '#fecaca',
+             '三檔標的皆超標，產品自動結束，拿回本金＋已累積配息。', '只要有一檔未達標，當天就不解構。'),
+            ('Strike 執行價', f'— Strike {strike_pct:.0f}%', '#16a34a', '#f0fdf4', '#bbf7d0',
+             '到期時若最差標的低於此值，將以此價格買進', '最差標的股票，用以返還本金。'),
+            ('KI 保護價', f'▼ KI 保護 {ki_pct:.0f}%', '#d97706', '#fffbeb', '#fde68a',
+             '若任一比價日任一檔低於KI值，到期將以執行價', '（Strike）買進最差標的，未跌破則不在此限。'),
         ]
         leg_w = (W - PAD*2 - GAP*2) // 3
         leg_h = IP + hSM + 6 + hLG + 10 + hSM*2 + 6 + IP
@@ -1020,23 +1030,13 @@ if st.session_state.get('fcn_page_html'):
 # ══════════════════════════════════════
 st.divider()
 st.markdown("## 🖼️ 製圖")
-st.caption("勾選要放入圖片的區塊，再按「開始製圖」。📊 和 📈 兩區需先按「🚀 開始分析」才能顯示。")
-
-col_a, col_b = st.columns(2)
-with col_a:
-    sec_header  = st.checkbox("🏷️ 產品標題 & 基本資訊", value=True)
-    sec_periods = st.checkbox("🗓️ 配息期程表", value=True)
-    sec_legend  = st.checkbox("📝 KO / Strike / KI 條件說明", value=True)
-with col_b:
-    sec_status  = st.checkbox("📊 整體狀況（需先分析）", value=True)
-    sec_stocks  = st.checkbox("📈 個股詳細卡片（需先分析）", value=True)
 
 _sections = {
-    'header':  sec_header,
-    'periods': sec_periods,
-    'legend':  sec_legend,
-    'status':  sec_status,
-    'stocks':  sec_stocks,
+    'header':  True,
+    'periods': True,
+    'legend':  True,
+    'status':  False,
+    'stocks':  False,
 }
 
 if st.button("🖼️ 開始製圖", type="primary", use_container_width=True):
@@ -1058,7 +1058,7 @@ if st.button("🖼️ 開始製圖", type="primary", use_container_width=True):
             coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
             principal, first_obs_date, last_obs_date,
             filled_periods, ticker_data=_ticker_data or None,
-            sections=_sections,
+            sections=_sections, period_months=period_months,
         )
         import base64 as _b64
         _b64_str = _b64.b64encode(_img).decode()
