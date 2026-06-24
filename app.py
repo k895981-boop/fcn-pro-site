@@ -1040,8 +1040,9 @@ _sections = {
 }
 
 if st.button("🖼️ 開始製圖", type="primary", use_container_width=True):
+    _tl = [t.strip().upper() for t in tickers_input.split(',') if t.strip()]
     _ticker_data = []
-    for _t in ticker_list:
+    for _t in _tl:
         _s = st.session_state.get(f'stats_{_t}')
         _p = st.session_state.get(f'price_{_t}')
         if _s and _p:
@@ -1053,7 +1054,7 @@ if st.button("🖼️ 開始製圖", type="primary", use_container_width=True):
             })
     try:
         _img = generate_fcn_image(
-            ticker_list, ko_pct, ki_pct, strike_pct,
+            _tl, ko_pct, ki_pct, strike_pct,
             coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
             principal, first_obs_date, last_obs_date,
             filled_periods, ticker_data=_ticker_data or None,
