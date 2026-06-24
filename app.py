@@ -443,7 +443,7 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
 # ==========================================
 
 # ── 1️⃣ 輸入標的 ──
-st.sidebar.caption("⚡ v3.5 — 2026-06-25")
+st.sidebar.caption("⚡ v3.6 — 2026-06-25")
 st.sidebar.header("1️⃣ 輸入標的")
 st.sidebar.caption("美股直接輸入代碼，台股請加 .TW（如 2330.TW）")
 _n_tickers = st.sidebar.number_input("檔數", min_value=1, max_value=6,
@@ -1070,23 +1070,22 @@ if st.session_state.pop('trigger_image', False):
             filled_periods, ticker_data=_ticker_data or None,
             sections=_sections, period_months=period_months,
         )
-        import base64 as _b64
-        st.session_state['last_img_b64'] = _b64.b64encode(_img).decode()
-        st.session_state['last_img_fn']  = f"FCN客戶圖_{date.today().strftime('%Y%m%d')}.png"
+        st.session_state['last_img_bytes'] = _img
+        st.session_state['last_img_fn']    = f"FCN客戶圖_{date.today().strftime('%Y%m%d')}.png"
     except Exception as e:
         st.session_state['img_error'] = str(e)
 
-if st.session_state.get('last_img_b64'):
+if st.session_state.get('last_img_bytes'):
     st.divider()
-    _fn = st.session_state['last_img_fn']
-    st.markdown(
-        f'<a href="data:image/png;base64,{st.session_state["last_img_b64"]}" download="{_fn}" '
-        f'style="display:block;width:100%;text-align:center;padding:12px;'
-        f'background:#1e3a5f;color:white;border-radius:8px;font-weight:bold;'
-        f'text-decoration:none;font-size:1.05em;">📥 下載客戶圖片</a>',
-        unsafe_allow_html=True,
+    st.image(st.session_state['last_img_bytes'], use_container_width=True)
+    st.download_button(
+        label="📥 下載客戶圖片",
+        data=st.session_state['last_img_bytes'],
+        file_name=st.session_state['last_img_fn'],
+        mime="image/png",
+        use_container_width=True,
+        type="primary",
     )
-    st.success("圖片已產出，點上方連結下載。")
 if st.session_state.get('img_error'):
     st.error(f"製圖失敗：{st.session_state.pop('img_error')}")
 
