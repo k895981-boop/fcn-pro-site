@@ -6,56 +6,33 @@ import yfinance as yf
 import numpy as np
 import streamlit.components.v1 as components
 from datetime import datetime, date, timedelta
-import io
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import matplotlib.font_manager as fm
+import io, os, glob as _glob
 import warnings
 warnings.filterwarnings('ignore')
+from PIL import Image, ImageDraw, ImageFont
 
-# 重建字型快取並設定中文字型
-import os
-try:
-    fm._rebuild()
-except Exception:
-    pass
+# 找系統 CJK 字型（Railway apt 安裝 fonts-noto-cjk 後在此路徑）
+_CJK_FONT_FILE = None
+_FONT_SEARCH = [
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/opentype/noto/NotoSansCJKtc-Regular.otf',
+    '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
+] + _glob.glob('/usr/share/fonts/**/*CJK*.ttc', recursive=True) \
+  + _glob.glob('/usr/share/fonts/**/*CJK*.otf', recursive=True) \
+  + _glob.glob('/usr/share/fonts/**/*CJK*.ttf', recursive=True)
 
-_cjk_candidates = [
-    'Noto Sans CJK TC', 'Noto Sans CJK SC', 'Noto Sans TC',
-    'Microsoft YaHei', 'SimHei', 'PingFang TC',
-    'WenQuanYi Micro Hei', 'AR PL UMing TW',
-]
-_found_font = None
-for _f in _cjk_candidates:
-    if any(_f.lower() in f.name.lower() for f in fm.fontManager.ttflist):
-        _found_font = _f
+for _fp in _FONT_SEARCH:
+    if os.path.exists(_fp):
+        _CJK_FONT_FILE = _fp
         break
 
-# 直接掃描系統字型路徑（Railway apt 安裝後的位置）
-if not _found_font:
-    _sys_font_dirs = ['/usr/share/fonts', '/usr/local/share/fonts']
-    for _d in _sys_font_dirs:
-        if os.path.isdir(_d):
-            for _root, _, _files in os.walk(_d):
-                for _fn in _files:
-                    if _fn.endswith('.ttf') or _fn.endswith('.otf'):
-                        try:
-                            fm.fontManager.addfont(os.path.join(_root, _fn))
-                        except Exception:
-                            pass
-    for _f in _cjk_candidates:
-        if any(_f.lower() in f.name.lower() for f in fm.fontManager.ttflist):
-            _found_font = _f
-            break
-
-if _found_font:
-    matplotlib.rcParams['font.family'] = _found_font
-else:
-    matplotlib.rcParams['font.family'] = 'DejaVu Sans'
-
-matplotlib.rcParams['axes.unicode_minus'] = False
+def _pil_font(size, bold=False):
+    if _CJK_FONT_FILE:
+        try:
+            return ImageFont.truetype(_CJK_FONT_FILE, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
 
 st.set_page_config(page_title="結構商品全能工作站", layout="wide", page_icon="🏦")
 
@@ -284,114 +261,123 @@ def plot_heatmap(bt_data, ticker):
     fig.update_layout(height=350)
     return fig
 
+def _hex(h):
+    h = h.lstrip('#')
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+def _rect(draw, x0, y0, x1, y1, fill, outline=None, radius=8):
+    draw.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=fill,
+                            outline=outline, width=1 if outline else 0)
+
 def generate_summary_image(ticker, current_price, p_ko, p_ki, p_st,
                             ko_pct, ki_pct, strike_pct,
                             coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
                             principal, first_obs_date, last_obs_date,
                             safety_prob, positive_prob, period_months):
-    fig, ax = plt.subplots(figsize=(11, 8))
-    ax.set_xlim(0, 11)
-    ax.set_ylim(0, 8)
-    ax.axis('off')
-    fig.patch.set_facecolor('#f0f4f8')
+    W, H = 1100, 860
+    img = Image.new('RGB', (W, H), _hex('#f0f4f8'))
+    d = ImageDraw.Draw(img)
 
-    # 頂部標題列
-    ax.add_patch(patches.FancyBboxPatch((0.2, 6.9), 10.6, 0.9,
-        boxstyle="round,pad=0.05", facecolor='#1e3a5f', edgecolor='none'))
-    ax.text(5.5, 7.38, '結構商品全能工作站  FCN/ELN 分析摘要', ha='center', va='center',
-            fontsize=16, color='white', fontweight='bold')
-    ax.text(10.6, 6.95, f'產出日期：{date.today().strftime("%Y/%m/%d")}',
-            ha='right', va='bottom', fontsize=8, color='#94a3b8')
+    f8  = _pil_font(16)
+    f9  = _pil_font(18)
+    f10 = _pil_font(20)
+    f11 = _pil_font(22)
+    f13 = _pil_font(26)
+    f16 = _pil_font(32)
+    f20 = _pil_font(40)
+    f28 = _pil_font(56)
+    f36 = _pil_font(72)
+
+    PAD = 20
+
+    # ── 標題列 ──
+    _rect(d, PAD, PAD, W-PAD, 100, _hex('#1e3a5f'), radius=10)
+    d.text((W//2, 55), '結構商品全能工作站  FCN/ELN 分析摘要',
+           font=f16, fill=_hex('#ffffff'), anchor='mm')
+    d.text((W-PAD-5, 88), f'產出日期：{date.today().strftime("%Y/%m/%d")}',
+           font=f8, fill=_hex('#94a3b8'), anchor='rm')
 
     # ── 標的資訊 ──
-    ax.add_patch(patches.FancyBboxPatch((0.2, 5.7), 5.0, 1.05,
-        boxstyle="round,pad=0.05", facecolor='white', edgecolor='#cbd5e1', linewidth=0.8))
-    ax.text(0.5, 6.62, '標的', fontsize=9, color='#64748b')
-    ax.text(0.5, 6.35, ticker, fontsize=20, color='#1e293b', fontweight='bold')
-    ax.text(0.5, 6.10, f'最新股價：{current_price:.2f}', fontsize=10, color='#475569')
-    ax.text(3.5, 6.10, f'觀察天期：{period_months} 個月', fontsize=10, color='#475569')
+    _rect(d, PAD, 110, 540, 225, _hex('#ffffff'), outline='#cbd5e1', radius=8)
+    d.text((50, 122), '標的', font=f8, fill=_hex('#64748b'))
+    d.text((50, 142), ticker, font=f20, fill=_hex('#1e293b'))
+    d.text((50, 195), f'最新股價：{current_price:.2f}', font=f10, fill=_hex('#475569'))
+    d.text((350, 195), f'觀察天期：{period_months} 個月', font=f10, fill=_hex('#475569'))
 
     # ── 關鍵價位 ──
-    ax.add_patch(patches.FancyBboxPatch((5.4, 5.7), 5.4, 1.05,
-        boxstyle="round,pad=0.05", facecolor='white', edgecolor='#cbd5e1', linewidth=0.8))
-    ax.text(5.7, 6.62, '關鍵價位', fontsize=9, color='#64748b')
+    _rect(d, 550, 110, W-PAD, 225, _hex('#ffffff'), outline='#cbd5e1', radius=8)
+    d.text((575, 122), '關鍵價位', font=f8, fill=_hex('#64748b'))
     levels = [
         (f'KO ({ko_pct:.0f}%)', f'{p_ko:.2f}', '#dc2626'),
         (f'Strike ({strike_pct:.0f}%)', f'{p_st:.2f}', '#16a34a'),
         (f'KI ({ki_pct:.0f}%)', f'{p_ki:.2f}', '#d97706'),
     ]
-    for idx, (label, val, color) in enumerate(levels):
-        x = 5.7 + idx * 1.8
-        ax.text(x, 6.32, label, fontsize=8, color='#64748b')
-        ax.text(x, 6.08, val, fontsize=12, color=color, fontweight='bold')
+    for idx, (label, val, col) in enumerate(levels):
+        x = 575 + idx * 175
+        d.text((x, 148), label, font=f8, fill=_hex('#64748b'))
+        d.text((x, 172), val, font=f13, fill=_hex(col))
 
     # ── 配息資訊 ──
-    ax.add_patch(patches.FancyBboxPatch((0.2, 4.5), 5.0, 1.05,
-        boxstyle="round,pad=0.05", facecolor='#fff7ed', edgecolor='#fed7aa', linewidth=0.8))
-    ax.text(0.5, 5.42, '配息資訊', fontsize=9, color='#64748b')
-    ax.text(0.5, 5.15, f'年化配息率：{coupon_pa:.2f}%', fontsize=11, color='#1e293b', fontweight='bold')
-    ax.text(0.5, 4.88, f'投資本金：${principal:,} USD', fontsize=10, color='#475569')
-    ax.text(0.5, 4.63, f'每月預計配息：${monthly_coupon_usd:,.2f} USD  ≈  {monthly_coupon_twd:,} TWD（匯率{fx_rate:.0f}）',
-            fontsize=10, color='#c2410c', fontweight='bold')
+    _rect(d, PAD, 235, 540, 360, _hex('#fff7ed'), outline='#fed7aa', radius=8)
+    d.text((50, 248), '配息資訊', font=f8, fill=_hex('#64748b'))
+    d.text((50, 270), f'年化配息率：{coupon_pa:.2f}%', font=f11, fill=_hex('#1e293b'))
+    d.text((50, 305), f'投資本金：${principal:,} USD', font=f10, fill=_hex('#475569'))
+    d.text((50, 330), f'每月配息：${monthly_coupon_usd:,.2f} USD  ≈  {monthly_coupon_twd:,} TWD（匯率{fx_rate:.0f}）',
+           font=f10, fill=_hex('#c2410c'))
 
     # ── 比價時程 ──
-    ax.add_patch(patches.FancyBboxPatch((5.4, 4.5), 5.4, 1.05,
-        boxstyle="round,pad=0.05", facecolor='#f0fdf4', edgecolor='#bbf7d0', linewidth=0.8))
-    ax.text(5.7, 5.42, '比價時程', fontsize=9, color='#64748b')
+    _rect(d, 550, 235, W-PAD, 360, _hex('#f0fdf4'), outline='#bbf7d0', radius=8)
+    d.text((575, 248), '比價時程', font=f8, fill=_hex('#64748b'))
     if first_obs_date and last_obs_date:
         days_to_first = (first_obs_date - date.today()).days
         status = f'還有 {days_to_first} 天' if days_to_first > 0 else ('比價進行中' if days_to_first >= 0 else '保證期已過')
-        ax.text(5.7, 5.15, f'首個比價日：{first_obs_date.strftime("%Y/%m/%d")}  ({status})', fontsize=10, color='#1e293b')
-        ax.text(5.7, 4.88, f'最後比價日：{last_obs_date.strftime("%Y/%m/%d")}', fontsize=10, color='#1e293b')
+        d.text((575, 278), f'首個比價日：{first_obs_date.strftime("%Y/%m/%d")}  ({status})', font=f10, fill=_hex('#1e293b'))
+        d.text((575, 315), f'最後比價日：{last_obs_date.strftime("%Y/%m/%d")}', font=f10, fill=_hex('#1e293b'))
     else:
-        ax.text(5.7, 5.05, '（未設定比價日期）', fontsize=10, color='#94a3b8')
+        d.text((575, 295), '（未設定比價日期）', font=f10, fill=_hex('#94a3b8'))
 
     # ── 回測結果 ──
-    ax.add_patch(patches.FancyBboxPatch((0.2, 2.8), 10.6, 1.55,
-        boxstyle="round,pad=0.05", facecolor='white', edgecolor='#cbd5e1', linewidth=0.8))
-    ax.text(0.5, 4.22, '歷史回測結果（2009 至今）', fontsize=9, color='#64748b')
+    _rect(d, PAD, 370, W-PAD, 570, _hex('#ffffff'), outline='#cbd5e1', radius=8)
+    d.text((50, 382), '歷史回測結果（2009 至今）', font=f8, fill=_hex('#64748b'))
 
-    safe_color = '#16a34a' if safety_prob >= 80 else ('#d97706' if safety_prob >= 60 else '#dc2626')
-    pos_color  = '#16a34a' if positive_prob >= 60 else '#d97706'
-
-    ax.text(1.5, 3.75, f'{safety_prob:.1f}%', fontsize=32, color=safe_color, fontweight='bold', ha='center')
-    ax.text(1.5, 3.25, '安全機率', fontsize=11, color='#475569', ha='center')
-    ax.text(1.5, 3.00, '（不觸發接股）', fontsize=9, color='#94a3b8', ha='center')
-
-    ax.text(5.5, 3.75, f'{positive_prob:.1f}%', fontsize=32, color=pos_color, fontweight='bold', ha='center')
-    ax.text(5.5, 3.25, '正報酬機率', fontsize=11, color='#475569', ha='center')
-    ax.text(5.5, 3.00, '（期末股價高於進場）', fontsize=9, color='#94a3b8', ha='center')
-
+    safe_col = '#16a34a' if safety_prob >= 80 else ('#d97706' if safety_prob >= 60 else '#dc2626')
+    pos_col  = '#16a34a' if positive_prob >= 60 else '#d97706'
     loss_pct = 100 - safety_prob
-    ax.text(9.5, 3.65, f'{loss_pct:.1f}%', fontsize=22, color='#dc2626', fontweight='bold', ha='center')
-    ax.text(9.5, 3.25, '接股機率', fontsize=11, color='#475569', ha='center')
+
+    d.text((185, 415), f'{safety_prob:.1f}%', font=f36, fill=_hex(safe_col), anchor='mm')
+    d.text((185, 502), '安全機率', font=f11, fill=_hex('#475569'), anchor='mm')
+    d.text((185, 530), '（不觸發接股）', font=f9, fill=_hex('#94a3b8'), anchor='mm')
+
+    d.text((560, 415), f'{positive_prob:.1f}%', font=f36, fill=_hex(pos_col), anchor='mm')
+    d.text((560, 502), '正報酬機率', font=f11, fill=_hex('#475569'), anchor='mm')
+    d.text((560, 530), '（期末股價高於進場）', font=f9, fill=_hex('#94a3b8'), anchor='mm')
+
+    d.text((940, 430), f'{loss_pct:.1f}%', font=f28, fill=_hex('#dc2626'), anchor='mm')
+    d.text((940, 502), '接股機率', font=f11, fill=_hex('#475569'), anchor='mm')
 
     # ── 配息期程 ──
     filled_periods = [p for p in periods if p['pay']]
     if filled_periods:
-        ax.add_patch(patches.FancyBboxPatch((0.2, 1.5), 10.6, 1.15,
-            boxstyle="round,pad=0.05", facecolor='white', edgecolor='#e2e8f0', linewidth=0.8))
-        ax.text(0.5, 2.52, f'配息期程（共 {len(filled_periods)} 期）', fontsize=9, color='#64748b')
+        _rect(d, PAD, 580, W-PAD, 720, _hex('#ffffff'), outline='#e2e8f0', radius=8)
+        d.text((50, 592), f'配息期程（共 {len(filled_periods)} 期）', font=f8, fill=_hex('#64748b'))
+        col_w = (W - 2*PAD - 60) // min(len(filled_periods), 6)
         for idx, p in enumerate(filled_periods[:6]):
-            x = 0.5 + idx * 1.75
+            x = 50 + idx * col_w
             twd = round(p['amount_usd'] * fx_rate)
-            ax.text(x, 2.22, f'第{p["t"]}期', fontsize=8, color='#94a3b8')
-            ax.text(x, 2.00, p['pay'].strftime('%Y/%m/%d'), fontsize=9, color='#1e293b', fontweight='bold')
-            ax.text(x, 1.75, f'${p["amount_usd"]:,.0f}', fontsize=9, color='#16a34a')
-            ax.text(x, 1.58, f'{twd:,} TWD', fontsize=8, color='#64748b')
+            d.text((x, 618), f'第 {p["t"]} 期', font=f8, fill=_hex('#94a3b8'))
+            d.text((x, 640), p['pay'].strftime('%Y/%m/%d'), font=f9, fill=_hex('#1e293b'))
+            d.text((x, 670), f'${p["amount_usd"]:,.0f}', font=f9, fill=_hex('#16a34a'))
+            d.text((x, 695), f'{twd:,} TWD', font=f8, fill=_hex('#64748b'))
 
-    # ── 底部免責 ──
-    ax.add_patch(patches.FancyBboxPatch((0.2, 0.05), 10.6, 1.3,
-        boxstyle="round,pad=0.05", facecolor='#fff1f2', edgecolor='#fecaca', linewidth=0.8))
-    ax.text(0.5, 1.22, '⚠  免責聲明', fontsize=8, color='#dc2626', fontweight='bold')
-    ax.text(0.5, 1.02, '本分析摘要僅供參考，不構成投資建議。歷史回測不代表未來績效。', fontsize=8, color='#7f1d1d')
-    ax.text(0.5, 0.80, 'ELN/FCN 為非保本商品，最大風險為本金全部損失。', fontsize=8, color='#7f1d1d')
-    ax.text(0.5, 0.58, '股價資料來源：Yahoo Finance，可能存在延遲。請以發行機構公開說明書為準。', fontsize=8, color='#7f1d1d')
-    ax.text(10.6, 0.15, '結構商品全能工作站', ha='right', fontsize=7, color='#94a3b8')
+    # ── 免責聲明 ──
+    _rect(d, PAD, 730, W-PAD, H-PAD, _hex('#fff1f2'), outline='#fecada', radius=8)
+    d.text((50, 742), '⚠ 免責聲明', font=f8, fill=_hex('#dc2626'))
+    d.text((50, 765), '本分析摘要僅供參考，不構成投資建議。歷史回測不代表未來績效。', font=f8, fill=_hex('#7f1d1d'))
+    d.text((50, 788), 'ELN/FCN 為非保本商品，最大風險為本金全部損失。股價來源：Yahoo Finance。', font=f8, fill=_hex('#7f1d1d'))
+    d.text((W-PAD-5, H-PAD-8), '結構商品全能工作站', font=f8, fill=_hex('#94a3b8'), anchor='rm')
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', dpi=150, facecolor=fig.get_facecolor())
-    plt.close(fig)
+    img.save(buf, format='PNG')
     buf.seek(0)
     return buf.getvalue()
 
