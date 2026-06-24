@@ -187,6 +187,7 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
         stock_cards_html += f'''
         <div class="stock-card">
           <div class="stock-ticker">{t}</div>
+          <div style="color:#94a3b8;font-size:.75em;margin-bottom:2px">進場價</div>
           <div class="stock-price">{price_display}</div>
           <div class="bar-wrap">
             <div class="bar-danger"  style="left:0;width:{ki_pos:.1f}%"></div>
@@ -196,9 +197,9 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
             <div class="bar-cursor"  style="left:{cur_pos:.1f}%"></div>
           </div>
           <div class="level-row">
-            <span style="color:#f59e0b">▼ KI {ki_pct:.0f}%  ${ki_p:.2f}</span>
-            <span style="color:#4ade80">— Strike {strike_pct:.0f}%  ${st_p:.2f}</span>
-            <span style="color:#f87171">▲ KO {ko_pct:.0f}%  ${ko_p:.2f}</span>
+            <span style="color:#f59e0b">▼ KI ${ki_p:.2f}({ki_pct:.0f}%)</span>
+            <span style="color:#4ade80">— Strike ${st_p:.2f}({strike_pct:.0f}%)</span>
+            <span style="color:#f87171">▲ KO ${ko_p:.2f}({ko_pct:.0f}%)</span>
           </div>
         </div>'''
 
@@ -316,14 +317,21 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
 # ==========================================
 
 # ── 1️⃣ 輸入標的 ──
-st.sidebar.caption("⚡ v3.1 — 2026-06-25")
+st.sidebar.caption("⚡ v3.2 — 2026-06-25")
 st.sidebar.header("1️⃣ 輸入標的")
 st.sidebar.caption("美股直接輸入代碼，台股請加 .TW（如 2330.TW）")
-tickers_input = st.sidebar.text_area(
-    "股票代碼（逗號分隔）",
-    value=st.session_state.get('w_tickers', "TSLA, NVDA, GOOG"),
-    key='w_tickers', height=80,
-)
+_n_tickers = st.sidebar.number_input("檔數", min_value=1, max_value=6,
+                                      value=int(st.session_state.get('w_n_tickers', 3)),
+                                      step=1, key='w_n_tickers')
+_TICKER_DEFAULTS = ["TSLA", "NVDA", "GOOG", "", "", ""]
+_ticker_vals = []
+for _i in range(int(_n_tickers)):
+    _expander_label = f"第 {_i+1} 檔" if _i < 3 else f"+ 第 {_i+1} 檔"
+    with st.sidebar.expander(_expander_label, expanded=(_i == 0)):
+        _def = st.session_state.get(f'w_ticker_{_i}', _TICKER_DEFAULTS[_i] if _i < len(_TICKER_DEFAULTS) else "")
+        _t = st.text_input("輸入欄位", value=_def, key=f'w_ticker_{_i}', placeholder="如 TSLA 或 2330.TW")
+        _ticker_vals.append(_t)
+tickers_input = ", ".join([t for t in _ticker_vals if t.strip()])
 
 st.sidebar.divider()
 st.sidebar.header("2️⃣ 結構條件 (%)")
@@ -625,7 +633,7 @@ def generate_fcn_image(
 
     # ── 2. 配息期程表 ──
     if sections.get('periods', True) and filled_periods:
-        sec_title('🗓️  配息期程表')
+        sec_title('配息期程表')
         n_cols = min(len(filled_periods), 6)
         cw = (W - PAD*2) // n_cols
         row_h = IP + hMD + IP
@@ -650,43 +658,21 @@ def generate_fcn_image(
             y += row_h
         y += GAP
 
-    # ── 3. 整體狀況 (需先分析) ──
-    if sections.get('status', True):
-        if not ticker_data:
-            sec_title('📊  整體狀況')
-            _rect(d, PAD, y, W-PAD, y+IP*2+hMD, _hex('#fefce8'), outline='#fde68a', radius=8)
-            d.text((PAD+IP, y+IP), '⚠ 請先按「🚀 開始分析」後再製圖，才能顯示此區塊', font=fMD, fill=_hex('#92400e'))
-            y += IP*2+hMD+GAP
-        else:
-            sec_title('📊  整體狀況')
-            n = len(ticker_data)
-            card_w = (W - PAD*2 - GAP*(n-1)) // n
-            card_h = IP + hSM + 8 + hTIC + IP
-            for ci, td in enumerate(ticker_data):
-                cx = PAD + ci*(card_w+GAP)
-                cp = td['current_price']
-                sp = td['safety_prob']
-                safe_col = '#16a34a' if sp >= 80 else ('#d97706' if sp >= 60 else '#dc2626')
-                _rect(d, cx, y, cx+card_w, y+card_h, _hex('#ffffff'), outline='#e2e8f0', radius=10)
-                d.text((cx+IP, y+IP), td['ticker'], font=fSM, fill=_hex('#94a3b8'))
-                d.text((cx+IP, y+IP+hSM+8), f'${cp:.2f}', font=fTIC, fill=_hex('#1e293b'))
-                safe_txt = f'安全率 {sp:.1f}%'
-                d.text((cx+card_w-IP-_tw(fSM, safe_txt), y+IP), safe_txt, font=fSM, fill=_hex(safe_col))
-            y += card_h + GAP
+    # ── 3. 整體狀況 (已停用) ──
 
     # ── 4. 個股詳細卡片 (需先分析) ──
     if sections.get('stocks', True):
         if not ticker_data:
-            sec_title('📈  個股詳細卡片')
+            sec_title('個股詳細卡片')
             _rect(d, PAD, y, W-PAD, y+IP*2+hMD, _hex('#fefce8'), outline='#fde68a', radius=8)
-            d.text((PAD+IP, y+IP), '⚠ 請先按「🚀 開始分析」後再製圖，才能顯示此區塊', font=fMD, fill=_hex('#92400e'))
+            d.text((PAD+IP, y+IP), '請先按「開始分析」後再製圖，才能顯示此區塊', font=fMD, fill=_hex('#92400e'))
             y += IP*2+hMD+GAP
         else:
-            sec_title('📈  個股詳細卡片')
+            sec_title('個股詳細卡片')
             n = len(ticker_data)
             card_w = (W - PAD*2 - GAP*(n-1)) // n
             bar_h  = 18
-            card_h = IP + hTIC + 8 + hMD + 12 + bar_h + 8 + hSM*3 + 8 + hMD*2 + IP
+            card_h = IP + hTIC + 8 + hSM + 4 + hMD + 12 + bar_h + 8 + hSM*3 + IP
 
             for ci, td in enumerate(ticker_data):
                 cx = PAD + ci*(card_w+GAP)
@@ -694,18 +680,17 @@ def generate_fcn_image(
                 ko_p  = cp * ko_pct  / 100
                 st_p  = cp * strike_pct / 100
                 ki_p  = cp * ki_pct  / 100
-                sp    = td['safety_prob']
-                pp    = td['positive_prob']
-                safe_col = '#16a34a' if sp >= 80 else ('#d97706' if sp >= 60 else '#dc2626')
-                pos_col  = '#16a34a' if pp >= 60 else '#d97706'
 
                 _rect(d, cx, y, cx+card_w, y+card_h, _hex('#ffffff'), outline='#e2e8f0', radius=10)
                 iy = y + IP
 
-                # Ticker + price
+                # Ticker
                 d.text((cx+IP, iy), td['ticker'], font=fTIC, fill=_hex('#1e293b'))
                 iy += hTIC + 8
-                d.text((cx+IP, iy), f'現價  ${cp:.2f}', font=fMD, fill=_hex('#475569'))
+                # 進場價 label
+                d.text((cx+IP, iy), '進場價', font=fSM, fill=_hex('#94a3b8'))
+                iy += hSM + 4
+                d.text((cx+IP, iy), f'${cp:.2f}', font=fMD, fill=_hex('#475569'))
                 iy += hMD + 12
 
                 # Price bar
@@ -729,25 +714,19 @@ def generate_fcn_image(
                 d.rectangle([xc-2, iy-3, xc+2, iy+bar_h+3], fill=_hex('#1e293b'))
                 iy += bar_h + 8
 
-                # Level labels
+                # Level labels — format: ▼ KI $209.61(60%)
                 for label, col_l in [
-                    (f'▼ KI {ki_pct:.0f}%  ${ki_p:.2f}', '#d97706'),
-                    (f'— Strike {strike_pct:.0f}%  ${st_p:.2f}', '#16a34a'),
-                    (f'▲ KO {ko_pct:.0f}%  ${ko_p:.2f}', '#dc2626'),
+                    (f'▼ KI ${ki_p:.2f}({ki_pct:.0f}%)', '#d97706'),
+                    (f'— Strike ${st_p:.2f}({strike_pct:.0f}%)', '#16a34a'),
+                    (f'▲ KO ${ko_p:.2f}({ko_pct:.0f}%)', '#dc2626'),
                 ]:
                     d.text((cx+IP, iy), label, font=fSM, fill=_hex(col_l)); iy += hSM+2
-                iy += 6
-
-                # Backtest stats
-                d.text((cx+IP, iy), f'安全機率：{sp:.1f}%', font=fMD, fill=_hex(safe_col))
-                iy += hMD
-                d.text((cx+IP, iy), f'正報酬機率：{pp:.1f}%', font=fMD, fill=_hex(pos_col))
 
             y += card_h + GAP
 
     # ── 5. KO / Strike / KI 條件說明 ──
     if sections.get('legend', True):
-        sec_title('📝  條件說明')
+        sec_title('條件說明')
         leg_data = [
             ('KO 自動提前贖回', f'KO 出場 {ko_pct:.0f}%', '#dc2626', '#fff1f2', '#fecaca',
              '三檔標的皆曾超 ≥ 期初價，產品提前結束，拿回本金＋已累積票息。', '只要有一檔未達標，當天就不贖回。'),
@@ -1039,7 +1018,7 @@ if st.session_state.pop('trigger_image', False):
                 'safety_prob':   _s['safety_prob'],
                 'positive_prob': _s['positive_prob'],
             })
-    _sections = {'header': True, 'periods': True, 'legend': True, 'status': True, 'stocks': True}
+    _sections = {'header': True, 'periods': True, 'legend': True, 'status': False, 'stocks': True}
     try:
         _img = generate_fcn_image(
             _tl, ko_pct, ki_pct, strike_pct,
