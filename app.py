@@ -11,25 +11,41 @@ import warnings
 warnings.filterwarnings('ignore')
 from PIL import Image, ImageDraw, ImageFont
 
-# 找系統 CJK 字型（Railway apt 安裝 fonts-noto-cjk 後在此路徑）
+# ── 找 CJK 字型（系統優先，找不到就下載備援）──
 _CJK_FONT_FILE = None
+_FONT_CACHE    = '/tmp/_noto_cjk.otf'
+
 _FONT_SEARCH = [
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
     '/usr/share/fonts/opentype/noto/NotoSansCJKtc-Regular.otf',
     '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
-] + _glob.glob('/usr/share/fonts/**/*CJK*.ttc', recursive=True) \
-  + _glob.glob('/usr/share/fonts/**/*CJK*.otf', recursive=True) \
-  + _glob.glob('/usr/share/fonts/**/*CJK*.ttf', recursive=True)
+] + _glob.glob('/usr/share/fonts/**/*CJK*.otf', recursive=True) \
+  + _glob.glob('/usr/share/fonts/**/*CJK*.ttc', recursive=True) \
+  + _glob.glob('/usr/share/fonts/**/*CJK*.ttf', recursive=True) \
+  + [_FONT_CACHE]
 
 for _fp in _FONT_SEARCH:
     if os.path.exists(_fp):
         _CJK_FONT_FILE = _fp
         break
 
-def _pil_font(size, bold=False):
+# 若系統字型不存在，下載一次備援字型（約 12 MB，存 /tmp）
+if not _CJK_FONT_FILE:
+    try:
+        import urllib.request
+        _URL = ('https://raw.githubusercontent.com/notofonts/noto-cjk/main'
+                '/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf')
+        urllib.request.urlretrieve(_URL, _FONT_CACHE)
+        if os.path.exists(_FONT_CACHE):
+            _CJK_FONT_FILE = _FONT_CACHE
+    except Exception:
+        pass
+
+def _pil_font(size):
     if _CJK_FONT_FILE:
         try:
-            return ImageFont.truetype(_CJK_FONT_FILE, size)
+            kw = {'index': 0} if _CJK_FONT_FILE.endswith('.ttc') else {}
+            return ImageFont.truetype(_CJK_FONT_FILE, size, **kw)
         except Exception:
             pass
     return ImageFont.load_default()
@@ -127,10 +143,13 @@ st.sidebar.header("6️⃣ 回測參數")
 period_months = st.sidebar.number_input("觀察天期（月）", min_value=1, max_value=60, value=6, step=1)
 
 run_btn = st.sidebar.button("🚀 開始分析", type="primary")
+if run_btn:
+    st.session_state['show_results'] = True
 
 # ==========================================
 # 核心函數
 # ==========================================
+@st.cache_data(ttl=3600)
 def get_stock_data(ticker):
     try:
         df = yf.download(ticker, start="2009-01-01", progress=False)
@@ -151,6 +170,7 @@ def get_stock_data(ticker):
     except Exception as e:
         return None, str(e)
 
+@st.cache_data
 def run_backtest(df, ki_pct, strike_pct, months, memory_ko=False):
     trading_days = int(months * 21)
     bt = df[['Date', 'Close']].copy()
@@ -397,7 +417,7 @@ def show_tradingview(symbol):
 # ==========================================
 # 主程式
 # ==========================================
-if run_btn:
+if st.session_state.get('show_results'):
     ticker_list = [t.strip().upper() for t in tickers_input.split(',') if t.strip()]
     if not ticker_list:
         st.warning("請輸入股票代碼")
@@ -590,6 +610,9 @@ if run_btn:
 
 else:
     st.info("👈 請在左側設定參數，按下「開始分析」。")
+    if st.sidebar.button("🔄 重置", help="清除分析結果，重新設定參數"):
+        st.session_state['show_results'] = False
+        st.rerun()
 
 # ── 免責聲明 ──
 st.markdown("""
