@@ -225,8 +225,7 @@ def plot_price_chart(df, ticker, current_price, p_ko, p_ki, p_st):
     fig.update_layout(title=f"{ticker} - 走勢與關鍵價位（近3年）", height=450, margin=dict(r=80),
                       xaxis_title="日期", yaxis_title="價格",
                       yaxis_range=[min(all_p)*0.9, max(all_p)*1.05],
-                      hovermode="x unified", legend=dict(orientation="h", y=1.02, x=0),
-                      config={'toImageButtonOptions': {'format': 'png', 'filename': f'{ticker}_chart', 'scale': 2}})
+                      hovermode="x unified", legend=dict(orientation="h", y=1.02, x=0))
     return fig
 
 def plot_bar_chart(bt_data, ticker):
