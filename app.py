@@ -15,13 +15,46 @@ import matplotlib.font_manager as fm
 import warnings
 warnings.filterwarnings('ignore')
 
-# 嘗試設定支援中文的字型
-_cjk_fonts = ['Microsoft YaHei', 'SimHei', 'PingFang TC', 'Noto Sans CJK TC',
-               'Noto Sans CJK SC', 'WenQuanYi Micro Hei', 'DejaVu Sans']
-for _f in _cjk_fonts:
+# 重建字型快取並設定中文字型
+import os
+try:
+    fm._rebuild()
+except Exception:
+    pass
+
+_cjk_candidates = [
+    'Noto Sans CJK TC', 'Noto Sans CJK SC', 'Noto Sans TC',
+    'Microsoft YaHei', 'SimHei', 'PingFang TC',
+    'WenQuanYi Micro Hei', 'AR PL UMing TW',
+]
+_found_font = None
+for _f in _cjk_candidates:
     if any(_f.lower() in f.name.lower() for f in fm.fontManager.ttflist):
-        matplotlib.rcParams['font.family'] = _f
+        _found_font = _f
         break
+
+# 直接掃描系統字型路徑（Railway apt 安裝後的位置）
+if not _found_font:
+    _sys_font_dirs = ['/usr/share/fonts', '/usr/local/share/fonts']
+    for _d in _sys_font_dirs:
+        if os.path.isdir(_d):
+            for _root, _, _files in os.walk(_d):
+                for _fn in _files:
+                    if _fn.endswith('.ttf') or _fn.endswith('.otf'):
+                        try:
+                            fm.fontManager.addfont(os.path.join(_root, _fn))
+                        except Exception:
+                            pass
+    for _f in _cjk_candidates:
+        if any(_f.lower() in f.name.lower() for f in fm.fontManager.ttflist):
+            _found_font = _f
+            break
+
+if _found_font:
+    matplotlib.rcParams['font.family'] = _found_font
+else:
+    matplotlib.rcParams['font.family'] = 'DejaVu Sans'
+
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 st.set_page_config(page_title="結構商品全能工作站", layout="wide", page_icon="🏦")
@@ -521,23 +554,28 @@ if run_btn:
         """)
 
         # 一鍵產出圖片
-        try:
-            img_bytes = generate_summary_image(
-                ticker, current_price, p_ko, p_ki, p_st,
-                ko_pct, ki_pct, strike_pct,
-                coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
-                principal, first_obs_date, last_obs_date,
-                stats['safety_prob'], stats['positive_prob'], period_months
-            )
+        _img_key = f"img_{ticker}_{date.today()}"
+        if _img_key not in st.session_state:
+            try:
+                st.session_state[_img_key] = generate_summary_image(
+                    ticker, current_price, p_ko, p_ki, p_st,
+                    ko_pct, ki_pct, strike_pct,
+                    coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
+                    principal, first_obs_date, last_obs_date,
+                    stats['safety_prob'], stats['positive_prob'], period_months
+                )
+            except Exception as e:
+                st.session_state[_img_key] = None
+                st.warning(f"圖片產出失敗：{e}")
+        if st.session_state.get(_img_key):
             st.download_button(
                 label=f"📸 一鍵產出分析摘要圖片（{ticker}）",
-                data=img_bytes,
+                data=st.session_state[_img_key],
                 file_name=f"{ticker}_FCN分析摘要_{date.today().strftime('%Y%m%d')}.png",
                 mime="image/png",
                 use_container_width=True,
+                key=f"dl_{ticker}_{date.today()}",
             )
-        except Exception as e:
-            st.warning(f"圖片產出失敗：{e}")
 
         fig_bar = plot_bar_chart(bt_data, ticker)
         st.plotly_chart(fig_bar, use_container_width=True, config={'toImageButtonOptions': {'format': 'png', 'filename': f'{ticker}_回測圖', 'scale': 2}})
