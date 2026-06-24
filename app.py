@@ -285,6 +285,7 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
   <div class="level-chip level-st">— Strike 執行 {strike_pct:.0f}%</div>
   <div class="level-chip level-ki">▼ KI 保護 {ki_pct:.0f}%</div>
 </div>
+{stocks_block}
 <div class="section">
   <div class="section-title">📝 條件說明</div>
   <div class="legend-grid">
@@ -1038,7 +1039,7 @@ if st.session_state.pop('trigger_image', False):
                 'safety_prob':   _s['safety_prob'],
                 'positive_prob': _s['positive_prob'],
             })
-    _sections = {'header': True, 'periods': True, 'legend': True, 'status': False, 'stocks': False}
+    _sections = {'header': True, 'periods': True, 'legend': True, 'status': False, 'stocks': True}
     try:
         _img = generate_fcn_image(
             _tl, ko_pct, ki_pct, strike_pct,
