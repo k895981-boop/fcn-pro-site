@@ -279,12 +279,12 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
     <span>末比價日 {last_str}</span>
   </div>
 </div>
+{periods_block}
 <div class="levels">
   <div class="level-chip level-ko">KO 出場 {ko_pct:.0f}%</div>
   <div class="level-chip level-st">— Strike 執行 {strike_pct:.0f}%</div>
   <div class="level-chip level-ki">▼ KI 保護 {ki_pct:.0f}%</div>
 </div>
-{periods_block}
 <div class="section">
   <div class="section-title">📝 條件說明</div>
   <div class="legend-grid">
@@ -404,6 +404,11 @@ if st.sidebar.button("🌐 預覽", type="primary", use_container_width=True):
     )
 if run_btn:
     st.session_state['show_results'] = True
+
+st.sidebar.divider()
+st.sidebar.header("8️⃣ 製圖")
+if st.sidebar.button("🖼️ 開始製圖", type="primary", use_container_width=True):
+    st.session_state['trigger_image'] = True
 
 # ==========================================
 # 核心函數
@@ -1025,20 +1030,9 @@ if st.session_state.get('fcn_page_html'):
         st.rerun()
 
 # ══════════════════════════════════════
-# 8️⃣  製圖工具（永遠顯示）
+# 8️⃣  製圖（由 sidebar 按鈕觸發）
 # ══════════════════════════════════════
-st.divider()
-st.markdown("## 🖼️ 製圖")
-
-_sections = {
-    'header':  True,
-    'periods': True,
-    'legend':  True,
-    'status':  False,
-    'stocks':  False,
-}
-
-if st.button("🖼️ 開始製圖", type="primary", use_container_width=True):
+if st.session_state.pop('trigger_image', False):
     _tl = [t.strip().upper() for t in tickers_input.split(',') if t.strip()]
     _ticker_data = []
     for _t in _tl:
@@ -1051,6 +1045,7 @@ if st.button("🖼️ 開始製圖", type="primary", use_container_width=True):
                 'safety_prob':   _s['safety_prob'],
                 'positive_prob': _s['positive_prob'],
             })
+    _sections = {'header': True, 'periods': True, 'legend': True, 'status': False, 'stocks': False}
     try:
         _img = generate_fcn_image(
             _tl, ko_pct, ki_pct, strike_pct,
@@ -1060,18 +1055,24 @@ if st.button("🖼️ 開始製圖", type="primary", use_container_width=True):
             sections=_sections, period_months=period_months,
         )
         import base64 as _b64
-        _b64_str = _b64.b64encode(_img).decode()
-        _fn = f"FCN客戶圖_{date.today().strftime('%Y%m%d')}.png"
-        st.markdown(
-            f'<a href="data:image/png;base64,{_b64_str}" download="{_fn}" '
-            f'style="display:block;width:100%;text-align:center;padding:12px;'
-            f'background:#1e3a5f;color:white;border-radius:8px;font-weight:bold;'
-            f'text-decoration:none;font-size:1.05em;">📥 下載客戶圖片</a>',
-            unsafe_allow_html=True,
-        )
-        st.success("圖片已產出，點上方連結下載。")
+        st.session_state['last_img_b64'] = _b64.b64encode(_img).decode()
+        st.session_state['last_img_fn']  = f"FCN客戶圖_{date.today().strftime('%Y%m%d')}.png"
     except Exception as e:
-        st.error(f"製圖失敗：{e}")
+        st.session_state['img_error'] = str(e)
+
+if st.session_state.get('last_img_b64'):
+    st.divider()
+    _fn = st.session_state['last_img_fn']
+    st.markdown(
+        f'<a href="data:image/png;base64,{st.session_state["last_img_b64"]}" download="{_fn}" '
+        f'style="display:block;width:100%;text-align:center;padding:12px;'
+        f'background:#1e3a5f;color:white;border-radius:8px;font-weight:bold;'
+        f'text-decoration:none;font-size:1.05em;">📥 下載客戶圖片</a>',
+        unsafe_allow_html=True,
+    )
+    st.success("圖片已產出，點上方連結下載。")
+if st.session_state.get('img_error'):
+    st.error(f"製圖失敗：{st.session_state.pop('img_error')}")
 
 # ── 免責聲明 ──
 st.markdown("""
