@@ -77,8 +77,13 @@ guaranteed_months = st.sidebar.number_input("保證配息期（月）", min_valu
 st.sidebar.divider()
 st.sidebar.header("4️⃣ 投資與配息設定")
 principal  = st.sidebar.number_input("投資本金（USD）", value=100000, step=10000)
-coupon_pa  = st.sidebar.number_input("年化配息率（Coupon %）", value=8.0, step=0.5, format="%.1f")
+coupon_pa  = st.sidebar.number_input("年化配息率（Coupon %）", value=8.00, step=0.01, format="%.2f")
 fx_rate    = st.sidebar.number_input("匯率（USD → TWD）", value=31.0, step=0.1, format="%.1f")
+
+# 自動計算每月配息
+monthly_coupon_usd = round(principal * coupon_pa / 100 / 12, 2)
+monthly_coupon_twd = round(monthly_coupon_usd * fx_rate)
+st.sidebar.success(f"預計每月配息：**${monthly_coupon_usd:,.2f} USD**　≈　**{monthly_coupon_twd:,} TWD**")
 
 st.sidebar.divider()
 st.sidebar.header("5️⃣ 配息期程設定")
@@ -87,11 +92,9 @@ n_periods = st.sidebar.number_input("期數", min_value=1, max_value=24, value=4
 periods = []
 for i in range(int(n_periods)):
     with st.sidebar.expander(f"第 {i+1} 期", expanded=(i == 0)):
-        p_start = st.date_input(f"起始日", value=None, key=f"ps_{i}")
-        p_end   = st.date_input(f"終止日", value=None, key=f"pe_{i}")
         p_pay   = st.date_input(f"配息日", value=None, key=f"pp_{i}")
-        p_amt   = st.number_input(f"預計配息（USD）", value=round(principal * coupon_pa / 100 / 12), step=100, key=f"pa_{i}")
-        periods.append({"t": i+1, "start": p_start, "end": p_end, "pay": p_pay, "amount_usd": p_amt})
+        p_amt   = st.number_input(f"預計配息（USD）", value=monthly_coupon_usd, step=100.0, format="%.2f", key=f"pa_{i}")
+        periods.append({"t": i+1, "start": None, "end": None, "pay": p_pay, "amount_usd": p_amt})
 
 st.sidebar.divider()
 st.sidebar.header("6️⃣ 回測參數")
@@ -291,27 +294,24 @@ if run_btn:
             rows = []
             total_usd = 0
             for p in periods:
-                if p['start'] and p['end'] and p['pay']:
+                if p['pay']:
                     twd = round(p['amount_usd'] * fx_rate)
                     total_usd += p['amount_usd']
                     rows.append({
                         "期": p['t'],
-                        "起始日": p['start'].strftime('%Y/%m/%d'),
-                        "終止日": p['end'].strftime('%Y/%m/%d'),
                         "配息日": p['pay'].strftime('%Y/%m/%d'),
-                        "預計配息 (USD)": f"${p['amount_usd']:,}",
-                        f"台幣 (匯率{fx_rate:.0f})": f"{twd//10000:.1f}萬",
+                        "預計配息 (USD)": f"${p['amount_usd']:,.2f}",
+                        f"台幣 (匯率{fx_rate:.0f})": f"{twd:,}",
                     })
 
             df_periods = pd.DataFrame(rows)
 
-            # 計算當前期數
+            # 計算當前期數（以配息日判斷最近一期）
             current_period = None
             for p in periods:
-                if p['start'] and p['end']:
-                    if p['start'] <= today <= p['end']:
-                        current_period = p['t']
-                        break
+                if p['pay'] and p['pay'] >= today:
+                    current_period = p['t']
+                    break
 
             # 樣式：目前期高亮
             def highlight_current(row):
