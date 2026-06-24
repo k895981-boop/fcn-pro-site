@@ -289,113 +289,234 @@ def _rect(draw, x0, y0, x1, y1, fill, outline=None, radius=8):
     draw.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=fill,
                             outline=outline, width=1 if outline else 0)
 
+def _th(font):
+    """取得字型行高（含行距）"""
+    bb = font.getbbox('Ag字')
+    return bb[3] - bb[1] + 6
+
+def _tw(font, text):
+    bb = font.getbbox(text)
+    return bb[2] - bb[0]
+
 def generate_summary_image(ticker, current_price, p_ko, p_ki, p_st,
                             ko_pct, ki_pct, strike_pct,
                             coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
                             principal, first_obs_date, last_obs_date,
                             safety_prob, positive_prob, period_months):
-    W, H = 1100, 860
+    # ── 字型 ──
+    fSM  = _pil_font(18)   # 小字
+    fMD  = _pil_font(22)   # 中字
+    fLG  = _pil_font(28)   # 大字
+    fXL  = _pil_font(36)   # 特大
+    fTIC = _pil_font(52)   # 標的代碼
+    fBIG = _pil_font(80)   # 百分比
+
+    W   = 1200
+    PAD = 24
+    GAP = 14    # 區塊間距
+    IP  = 18    # 區塊內 padding
+
+    # ── 預先計算各行高 ──
+    hSM = _th(fSM)
+    hMD = _th(fMD)
+    hLG = _th(fLG)
+    hBIG= _th(fBIG)
+
+    # ── 動態算總高 ──
+    filled_periods = [p for p in periods if p['pay']]
+    period_rows = (len(filled_periods) + 3) // 4   # 每行最多 4 期
+    H = (PAD + 80 + GAP           # 標題
+       + IP*2 + hLG + hMD + hSM + 8 + GAP  # 標的 + 關鍵價
+       + IP*2 + hSM + hMD*2 + hLG + 8 + GAP  # 配息 + 比價
+       + IP*2 + hSM + hBIG + hMD + hSM + 16 + GAP  # 回測
+       + (IP*2 + hSM + (hMD + hSM*2 + 8)*period_rows + 8 + GAP if filled_periods else 0)
+       + IP*2 + hSM*4 + 8 + PAD)  # 免責
+
     img = Image.new('RGB', (W, H), _hex('#f0f4f8'))
-    d = ImageDraw.Draw(img)
+    d   = ImageDraw.Draw(img)
+    y   = PAD
 
-    f8  = _pil_font(16)
-    f9  = _pil_font(18)
-    f10 = _pil_font(20)
-    f11 = _pil_font(22)
-    f13 = _pil_font(26)
-    f16 = _pil_font(32)
-    f20 = _pil_font(40)
-    f28 = _pil_font(56)
-    f36 = _pil_font(72)
+    def row(text, font, color, x=PAD+IP, center=False, right_text=None, right_font=None, right_col='#94a3b8'):
+        nonlocal y
+        if center:
+            d.text((W//2, y), text, font=font, fill=_hex(color), anchor='la')
+            tw = _tw(font, text)
+            d.text(((W - tw)//2, y), text, font=font, fill=_hex(color))
+        else:
+            d.text((x, y), text, font=font, fill=_hex(color))
+        if right_text:
+            rf = right_font or font
+            rw = _tw(rf, right_text)
+            d.text((W - PAD - IP - rw, y), right_text, font=rf, fill=_hex(right_col))
+        y += _th(font)
 
-    PAD = 20
+    def section(fill, outline):
+        nonlocal y
+        return y   # 起始 y，結束時呼叫 end_section
 
-    # ── 標題列 ──
-    _rect(d, PAD, PAD, W-PAD, 100, _hex('#1e3a5f'), radius=10)
-    d.text((W//2, 55), '結構商品全能工作站  FCN/ELN 分析摘要',
-           font=f16, fill=_hex('#ffffff'), anchor='mm')
-    d.text((W-PAD-5, 88), f'產出日期：{date.today().strftime("%Y/%m/%d")}',
-           font=f8, fill=_hex('#94a3b8'), anchor='rm')
+    def end_section(start_y, fill, outline):
+        nonlocal y
+        y += IP
+        _rect(d, PAD, start_y, W-PAD, y, _hex(fill), outline=outline, radius=10)
+        y += GAP
 
-    # ── 標的資訊 ──
-    _rect(d, PAD, 110, 540, 225, _hex('#ffffff'), outline='#cbd5e1', radius=8)
-    d.text((50, 122), '標的', font=f8, fill=_hex('#64748b'))
-    d.text((50, 142), ticker, font=f20, fill=_hex('#1e293b'))
-    d.text((50, 195), f'最新股價：{current_price:.2f}', font=f10, fill=_hex('#475569'))
-    d.text((350, 195), f'觀察天期：{period_months} 個月', font=f10, fill=_hex('#475569'))
+    # ────────── 標題 ──────────
+    _rect(d, PAD, y, W-PAD, y+76, _hex('#1e3a5f'), radius=10)
+    d.text((W//2, y+38), '結構商品全能工作站  FCN/ELN 分析摘要',
+           font=fLG, fill=_hex('#ffffff'), anchor='mm')
+    d.text((W-PAD-IP, y+62), f'產出日期：{date.today().strftime("%Y/%m/%d")}',
+           font=fSM, fill=_hex('#94a3b8'), anchor='rm')
+    y += 76 + GAP
 
-    # ── 關鍵價位 ──
-    _rect(d, 550, 110, W-PAD, 225, _hex('#ffffff'), outline='#cbd5e1', radius=8)
-    d.text((575, 122), '關鍵價位', font=f8, fill=_hex('#64748b'))
+    # ────────── 標的 + 關鍵價位（左右並排） ──────────
+    sec_y = y
+    left_w  = (W - PAD*2 - GAP) * 5 // 10
+    right_x = PAD + left_w + GAP
+
+    # 左：標的
+    _rect(d, PAD, sec_y, PAD+left_w, sec_y + IP*2 + hSM + hTIC + hMD + 8,
+          _hex('#ffffff'), outline='#cbd5e1', radius=10)
+    d.text((PAD+IP, sec_y+IP), '標的 / Underlying', font=fSM, fill=_hex('#94a3b8'))
+    hTIC2 = _th(fTIC)
+    d.text((PAD+IP, sec_y+IP+hSM+4), ticker, font=fTIC, fill=_hex('#1e293b'))
+    d.text((PAD+IP, sec_y+IP+hSM+4+hTIC2+4),
+           f'最新股價：{current_price:.2f}　　觀察天期：{period_months} 個月',
+           font=fMD, fill=_hex('#475569'))
+    row_h_left = IP*2 + hSM + hTIC2 + hMD + 8
+
+    # 右：關鍵價位
     levels = [
         (f'KO ({ko_pct:.0f}%)', f'{p_ko:.2f}', '#dc2626'),
         (f'Strike ({strike_pct:.0f}%)', f'{p_st:.2f}', '#16a34a'),
         (f'KI ({ki_pct:.0f}%)', f'{p_ki:.2f}', '#d97706'),
     ]
-    for idx, (label, val, col) in enumerate(levels):
-        x = 575 + idx * 175
-        d.text((x, 148), label, font=f8, fill=_hex('#64748b'))
-        d.text((x, 172), val, font=f13, fill=_hex(col))
+    lev_h = IP*2 + hSM + (hSM + hLG + 8)*3
+    _rect(d, right_x, sec_y, W-PAD, sec_y + max(row_h_left, lev_h),
+          _hex('#ffffff'), outline='#cbd5e1', radius=10)
+    lx = right_x + IP
+    ly = sec_y + IP
+    d.text((lx, ly), '關鍵價位', font=fSM, fill=_hex('#94a3b8'))
+    ly += hSM + 8
+    for label, val, col in levels:
+        d.text((lx, ly), label, font=fSM, fill=_hex('#64748b'))
+        ly += hSM + 2
+        d.text((lx, ly), val, font=fLG, fill=_hex(col))
+        ly += hLG + 8
 
-    # ── 配息資訊 ──
-    _rect(d, PAD, 235, 540, 360, _hex('#fff7ed'), outline='#fed7aa', radius=8)
-    d.text((50, 248), '配息資訊', font=f8, fill=_hex('#64748b'))
-    d.text((50, 270), f'年化配息率：{coupon_pa:.2f}%', font=f11, fill=_hex('#1e293b'))
-    d.text((50, 305), f'投資本金：${principal:,} USD', font=f10, fill=_hex('#475569'))
-    d.text((50, 330), f'每月配息：${monthly_coupon_usd:,.2f} USD  ≈  {monthly_coupon_twd:,} TWD（匯率{fx_rate:.0f}）',
-           font=f10, fill=_hex('#c2410c'))
+    y += max(row_h_left, lev_h) + GAP
 
-    # ── 比價時程 ──
-    _rect(d, 550, 235, W-PAD, 360, _hex('#f0fdf4'), outline='#bbf7d0', radius=8)
-    d.text((575, 248), '比價時程', font=f8, fill=_hex('#64748b'))
+    # ────────── 配息資訊 + 比價時程 ──────────
+    coupon_lines = [
+        ('配息資訊', fSM, '#94a3b8'),
+        (f'年化配息率：{coupon_pa:.2f}%', fLG, '#1e293b'),
+        (f'投資本金：${principal:,} USD', fMD, '#475569'),
+        (f'每月配息：${monthly_coupon_usd:,.2f} USD  ≈  {monthly_coupon_twd:,} TWD（匯率{fx_rate:.0f}）', fMD, '#c2410c'),
+    ]
+    ch = IP + sum(_th(f) for _,f,_ in coupon_lines) + 8 + IP
+
+    _rect(d, PAD, y, PAD+left_w, y+ch, _hex('#fff7ed'), outline='#fed7aa', radius=10)
+    cy = y + IP
+    for txt, fnt, col in coupon_lines:
+        d.text((PAD+IP, cy), txt, font=fnt, fill=_hex(col))
+        cy += _th(fnt)
+
+    # 右：比價時程
+    obs_lines = ['比價時程']
     if first_obs_date and last_obs_date:
         days_to_first = (first_obs_date - date.today()).days
         status = f'還有 {days_to_first} 天' if days_to_first > 0 else ('比價進行中' if days_to_first >= 0 else '保證期已過')
-        d.text((575, 278), f'首個比價日：{first_obs_date.strftime("%Y/%m/%d")}  ({status})', font=f10, fill=_hex('#1e293b'))
-        d.text((575, 315), f'最後比價日：{last_obs_date.strftime("%Y/%m/%d")}', font=f10, fill=_hex('#1e293b'))
+        obs_lines += [
+            f'首個比價日：{first_obs_date.strftime("%Y/%m/%d")}  ({status})',
+            f'最後比價日：{last_obs_date.strftime("%Y/%m/%d")}',
+        ]
     else:
-        d.text((575, 295), '（未設定比價日期）', font=f10, fill=_hex('#94a3b8'))
+        obs_lines += ['（未設定比價日期）']
 
-    # ── 回測結果 ──
-    _rect(d, PAD, 370, W-PAD, 570, _hex('#ffffff'), outline='#cbd5e1', radius=8)
-    d.text((50, 382), '歷史回測結果（2009 至今）', font=f8, fill=_hex('#64748b'))
+    obs_fonts = [fSM, fMD, fMD, fMD]
+    obs_cols  = ['#94a3b8', '#1e293b', '#1e293b', '#1e293b']
+    oh = IP + sum(_th(obs_fonts[i]) for i in range(len(obs_lines))) + 8 + IP
+    sec_h = max(ch, oh)
 
+    _rect(d, right_x, y, W-PAD, y+sec_h, _hex('#f0fdf4'), outline='#bbf7d0', radius=10)
+    oy = y + IP
+    for i, txt in enumerate(obs_lines):
+        d.text((right_x+IP, oy), txt, font=obs_fonts[i], fill=_hex(obs_cols[i]))
+        oy += _th(obs_fonts[i])
+
+    if ch < sec_h:
+        _rect(d, PAD, y, PAD+left_w, y+sec_h, _hex('#fff7ed'), outline='#fed7aa', radius=10)
+        cy2 = y + IP
+        for txt, fnt, col in coupon_lines:
+            d.text((PAD+IP, cy2), txt, font=fnt, fill=_hex(col))
+            cy2 += _th(fnt)
+
+    y += sec_h + GAP
+
+    # ────────── 回測結果 ──────────
     safe_col = '#16a34a' if safety_prob >= 80 else ('#d97706' if safety_prob >= 60 else '#dc2626')
     pos_col  = '#16a34a' if positive_prob >= 60 else '#d97706'
     loss_pct = 100 - safety_prob
 
-    d.text((185, 415), f'{safety_prob:.1f}%', font=f36, fill=_hex(safe_col), anchor='mm')
-    d.text((185, 502), '安全機率', font=f11, fill=_hex('#475569'), anchor='mm')
-    d.text((185, 530), '（不觸發接股）', font=f9, fill=_hex('#94a3b8'), anchor='mm')
+    stat_h = IP + hSM + 16 + hBIG + 10 + hMD + 6 + hSM + IP
+    _rect(d, PAD, y, W-PAD, y+stat_h, _hex('#ffffff'), outline='#cbd5e1', radius=10)
 
-    d.text((560, 415), f'{positive_prob:.1f}%', font=f36, fill=_hex(pos_col), anchor='mm')
-    d.text((560, 502), '正報酬機率', font=f11, fill=_hex('#475569'), anchor='mm')
-    d.text((560, 530), '（期末股價高於進場）', font=f9, fill=_hex('#94a3b8'), anchor='mm')
+    d.text((PAD+IP, y+IP), '歷史回測結果（2009 至今）', font=fSM, fill=_hex('#94a3b8'))
 
-    d.text((940, 430), f'{loss_pct:.1f}%', font=f28, fill=_hex('#dc2626'), anchor='mm')
-    d.text((940, 502), '接股機率', font=f11, fill=_hex('#475569'), anchor='mm')
+    cols_x = [W//6, W//2, W*5//6]
+    stats_data = [
+        (f'{safety_prob:.1f}%', safe_col, '安全機率', '（不觸發接股）'),
+        (f'{positive_prob:.1f}%', pos_col, '正報酬機率', '（期末股價高於進場）'),
+        (f'{loss_pct:.1f}%', '#dc2626', '接股機率', ''),
+    ]
+    base_y = y + IP + hSM + 16
+    for cx, (pct, col, label, sub) in zip(cols_x, stats_data):
+        pw = _tw(fBIG, pct)
+        d.text((cx - pw//2, base_y), pct, font=fBIG, fill=_hex(col))
+        lw = _tw(fMD, label)
+        d.text((cx - lw//2, base_y + hBIG + 10), label, font=fMD, fill=_hex('#475569'))
+        if sub:
+            sw = _tw(fSM, sub)
+            d.text((cx - sw//2, base_y + hBIG + 10 + hMD + 4), sub, font=fSM, fill=_hex('#94a3b8'))
 
-    # ── 配息期程 ──
-    filled_periods = [p for p in periods if p['pay']]
+    y += stat_h + GAP
+
+    # ────────── 配息期程 ──────────
     if filled_periods:
-        _rect(d, PAD, 580, W-PAD, 720, _hex('#ffffff'), outline='#e2e8f0', radius=8)
-        d.text((50, 592), f'配息期程（共 {len(filled_periods)} 期）', font=f8, fill=_hex('#64748b'))
-        col_w = (W - 2*PAD - 60) // min(len(filled_periods), 6)
-        for idx, p in enumerate(filled_periods[:6]):
-            x = 50 + idx * col_w
+        n_cols = min(len(filled_periods), 4)
+        col_w  = (W - PAD*2 - IP*2) // n_cols
+        rows_needed = (len(filled_periods) + n_cols - 1) // n_cols
+        per_h  = IP + hSM + 16 + rows_needed * (hSM + hMD + hSM + 8) + IP
+        _rect(d, PAD, y, W-PAD, y+per_h, _hex('#ffffff'), outline='#e2e8f0', radius=10)
+        d.text((PAD+IP, y+IP), f'配息期程（共 {len(filled_periods)} 期）', font=fSM, fill=_hex('#94a3b8'))
+        for idx, p in enumerate(filled_periods):
+            row_i = idx // n_cols
+            col_i = idx % n_cols
+            px = PAD + IP + col_i * col_w
+            py = y + IP + hSM + 16 + row_i * (hSM + hMD + hSM + 8)
             twd = round(p['amount_usd'] * fx_rate)
-            d.text((x, 618), f'第 {p["t"]} 期', font=f8, fill=_hex('#94a3b8'))
-            d.text((x, 640), p['pay'].strftime('%Y/%m/%d'), font=f9, fill=_hex('#1e293b'))
-            d.text((x, 670), f'${p["amount_usd"]:,.0f}', font=f9, fill=_hex('#16a34a'))
-            d.text((x, 695), f'{twd:,} TWD', font=f8, fill=_hex('#64748b'))
+            d.text((px, py),            f'第 {p["t"]} 期', font=fSM, fill=_hex('#94a3b8'))
+            d.text((px, py+hSM+2),      p['pay'].strftime('%Y/%m/%d'), font=fMD, fill=_hex('#1e293b'))
+            d.text((px, py+hSM+hMD+4),  f'${p["amount_usd"]:,.0f}  /  {twd:,} TWD', font=fSM, fill=_hex('#16a34a'))
+        y += per_h + GAP
 
-    # ── 免責聲明 ──
-    _rect(d, PAD, 730, W-PAD, H-PAD, _hex('#fff1f2'), outline='#fecada', radius=8)
-    d.text((50, 742), '⚠ 免責聲明', font=f8, fill=_hex('#dc2626'))
-    d.text((50, 765), '本分析摘要僅供參考，不構成投資建議。歷史回測不代表未來績效。', font=f8, fill=_hex('#7f1d1d'))
-    d.text((50, 788), 'ELN/FCN 為非保本商品，最大風險為本金全部損失。股價來源：Yahoo Finance。', font=f8, fill=_hex('#7f1d1d'))
-    d.text((W-PAD-5, H-PAD-8), '結構商品全能工作站', font=f8, fill=_hex('#94a3b8'), anchor='rm')
+    # ────────── 免責聲明 ──────────
+    disc = [
+        ('⚠ 免責聲明', fSM, '#dc2626'),
+        ('本分析摘要僅供參考，不構成投資建議。歷史回測不代表未來績效。', fSM, '#7f1d1d'),
+        ('ELN/FCN 為非保本商品，最大風險為本金全部損失。', fSM, '#7f1d1d'),
+        ('股價資料來源：Yahoo Finance，可能存在延遲或誤差。', fSM, '#7f1d1d'),
+    ]
+    disc_h = IP + sum(_th(f) for _,f,_ in disc) + 8 + IP
+    _rect(d, PAD, y, W-PAD, y+disc_h, _hex('#fff1f2'), outline='#fecada', radius=10)
+    dy = y + IP
+    for txt, fnt, col in disc:
+        d.text((PAD+IP, dy), txt, font=fnt, fill=_hex(col))
+        dy += _th(fnt)
+    d.text((W-PAD-IP, y+disc_h-IP-hSM), '結構商品全能工作站', font=fSM, fill=_hex('#94a3b8'), anchor='la')
+    y += disc_h
 
+    # ── 裁切到實際高度 ──
+    img = img.crop((0, 0, W, y + PAD))
     buf = io.BytesIO()
     img.save(buf, format='PNG')
     buf.seek(0)
