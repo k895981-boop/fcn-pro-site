@@ -76,10 +76,95 @@ def check_password():
 if not check_password():
     st.stop()
 
-# 防複製保護
+# 防複製保護 + 行動裝置優化 CSS
 st.markdown("""
 <style>
 * { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+
+/* ── 行動裝置全域優化 ── */
+
+/* 主標題在手機縮小 */
+@media (max-width: 768px) {
+    h1 { font-size: 1.4rem !important; }
+    h2 { font-size: 1.15rem !important; }
+    h3 { font-size: 1rem !important; }
+}
+
+/* 按鈕放大點擊區域 */
+@media (max-width: 768px) {
+    .stButton > button {
+        height: 3rem !important;
+        font-size: 1rem !important;
+        padding: 0 1.2rem !important;
+    }
+    /* Primary 按鈕更明顯 */
+    .stButton > button[kind="primary"] {
+        font-size: 1.05rem !important;
+    }
+}
+
+/* 指標卡（metric）在手機用單欄 */
+@media (max-width: 640px) {
+    [data-testid="column"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+        min-width: 100% !important;
+    }
+    [data-testid="metric-container"] {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px !important;
+        margin-bottom: 8px;
+    }
+}
+
+/* number_input / date_input 放大觸控區域 */
+@media (max-width: 768px) {
+    input[type="number"], input[type="text"], input[type="date"] {
+        font-size: 1rem !important;
+        height: 2.8rem !important;
+    }
+}
+
+/* dataframe 橫向可滾動 */
+@media (max-width: 768px) {
+    [data-testid="stDataFrame"] {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+/* sidebar 在手機開啟時的內距 */
+@media (max-width: 768px) {
+    section[data-testid="stSidebar"] > div {
+        padding-top: 1rem !important;
+    }
+}
+
+/* expander 標題放大 */
+@media (max-width: 768px) {
+    [data-testid="stExpander"] summary {
+        font-size: 1rem !important;
+        padding: 0.75rem 0 !important;
+    }
+}
+
+/* 下載連結按鈕（製圖用）在手機全寬且高度足夠 */
+@media (max-width: 768px) {
+    a[download] {
+        font-size: 1rem !important;
+        padding: 14px !important;
+        line-height: 1.4 !important;
+    }
+}
+
+/* success / info / warning box 字體 */
+@media (max-width: 768px) {
+    [data-testid="stAlert"] {
+        font-size: 0.9rem !important;
+    }
+}
 </style>
 <script>
 document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
@@ -238,8 +323,8 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
 
     periods_block = (
         '<div class="section"><div class="section-title">🗓️ 配息期程</div>'
-        '<table><thead><tr><th>期數</th><th>配息日</th><th>配息 (USD)</th><th>配息 (TWD)</th></tr></thead>'
-        f'<tbody>{period_rows_html}</tbody></table></div>'
+        '<div class="table-wrap"><table><thead><tr><th>期數</th><th>配息日</th><th>配息 (USD)</th><th>配息 (TWD)</th></tr></thead>'
+        f'<tbody>{period_rows_html}</tbody></table></div></div>'
     ) if filled_periods else ''
 
     stocks_block = (
@@ -255,43 +340,55 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
 <title>{title}</title>
 <style>
   *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{font-family:"Noto Sans TC",system-ui,sans-serif;background:#0f172a;color:#f1f5f9;padding:20px;min-height:100vh}}
-  .header{{background:linear-gradient(135deg,#1e3a5f,#1e4080);padding:28px 24px;border-radius:14px;margin-bottom:16px}}
-  .header-sub{{color:#94a3b8;font-size:.85em;margin-bottom:8px}}
-  .header-title{{font-size:1.7em;font-weight:700;margin-bottom:12px;line-height:1.3}}
-  .header-info{{display:flex;flex-wrap:wrap;gap:16px;color:#cbd5e1;font-size:.9em}}
+  body{{font-family:"Noto Sans TC",system-ui,sans-serif;background:#0f172a;color:#f1f5f9;padding:16px;min-height:100vh}}
+  .header{{background:linear-gradient(135deg,#1e3a5f,#1e4080);padding:22px 18px;border-radius:14px;margin-bottom:14px}}
+  .header-sub{{color:#94a3b8;font-size:.82em;margin-bottom:6px}}
+  .header-title{{font-size:1.5em;font-weight:700;margin-bottom:12px;line-height:1.35;word-break:break-word}}
+  .header-info{{display:flex;flex-wrap:wrap;gap:10px 20px;color:#cbd5e1;font-size:.88em;margin-top:10px}}
   .header-info span::before{{content:"｜";margin-right:8px;color:#475569}}
   .header-info span:first-child::before{{content:""}}
-  .levels{{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}}
-  .level-chip{{padding:8px 16px;border-radius:8px;font-weight:600;font-size:.95em}}
+  .levels{{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}}
+  .level-chip{{padding:8px 14px;border-radius:8px;font-weight:600;font-size:.92em}}
   .level-ko{{background:#450a0a;color:#f87171;border:1px solid #7f1d1d}}
   .level-st{{background:#052e16;color:#4ade80;border:1px solid #14532d}}
   .level-ki{{background:#451a03;color:#fb923c;border:1px solid #7c2d12}}
-  .section{{margin-bottom:16px}}
-  .section-title{{color:#94a3b8;font-size:.8em;letter-spacing:.1em;margin-bottom:8px;padding-left:4px}}
-  table{{width:100%;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden}}
-  th{{background:#0f172a;color:#94a3b8;font-size:.85em;padding:10px 16px;text-align:center}}
-  td{{padding:10px 16px;text-align:center;border-bottom:1px solid #334155;font-size:.95em}}
+  .section{{margin-bottom:14px}}
+  .section-title{{color:#94a3b8;font-size:.78em;letter-spacing:.08em;margin-bottom:8px;padding-left:4px}}
+  .table-wrap{{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:10px}}
+  table{{width:100%;min-width:340px;border-collapse:collapse;background:#1e293b;border-radius:10px;overflow:hidden}}
+  th{{background:#0f172a;color:#94a3b8;font-size:.82em;padding:10px 12px;text-align:center;white-space:nowrap}}
+  td{{padding:10px 12px;text-align:center;border-bottom:1px solid #334155;font-size:.92em}}
   tr:last-child td{{border-bottom:none}}
-  .stock-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}}
-  .stock-card{{background:#1e293b;border-radius:12px;padding:20px}}
-  .stock-ticker{{color:#94a3b8;font-size:.85em;margin-bottom:4px}}
-  .stock-price{{font-size:2em;font-weight:700;margin-bottom:14px}}
+  .stock-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}}
+  .stock-card{{background:#1e293b;border-radius:12px;padding:16px}}
+  .stock-ticker{{color:#94a3b8;font-size:.82em;margin-bottom:4px}}
+  .stock-price{{font-size:1.8em;font-weight:700;margin-bottom:10px}}
   .bar-wrap{{position:relative;height:14px;border-radius:7px;overflow:hidden;background:#334155;margin-bottom:10px}}
   .bar-danger,.bar-warning,.bar-safe,.bar-ko{{position:absolute;top:0;height:100%}}
   .bar-danger{{background:#7f1d1d}}.bar-warning{{background:#78350f}}
   .bar-safe{{background:#14532d}}.bar-ko{{background:#166534}}
   .bar-cursor{{position:absolute;top:-3px;width:4px;height:20px;background:#f1f5f9;border-radius:2px;transform:translateX(-50%)}}
-  .level-row{{display:flex;justify-content:space-between;font-size:.78em;flex-wrap:wrap;gap:4px}}
-  .legend-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}
-  .legend-card{{padding:18px;border-radius:10px}}
+  .level-row{{display:flex;justify-content:space-between;font-size:.76em;flex-wrap:wrap;gap:4px}}
+  .legend-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}}
+  .legend-card{{padding:16px;border-radius:10px}}
   .legend-ko{{background:#450a0a;border:1px solid #7f1d1d}}
   .legend-st{{background:#052e16;border:1px solid #14532d}}
   .legend-ki{{background:#451a03;border:1px solid #7c2d12}}
-  .legend-label{{font-size:.78em;color:#94a3b8;margin-bottom:4px}}
-  .legend-badge{{font-size:1.1em;font-weight:700;margin-bottom:8px}}
-  .legend-text{{font-size:.82em;color:#cbd5e1;line-height:1.5}}
-  .footer{{text-align:center;color:#475569;font-size:.78em;margin-top:24px;padding-top:16px;border-top:1px solid #1e293b}}
+  .legend-label{{font-size:.76em;color:#94a3b8;margin-bottom:4px}}
+  .legend-badge{{font-size:1.05em;font-weight:700;margin-bottom:8px}}
+  .legend-text{{font-size:.8em;color:#cbd5e1;line-height:1.6}}
+  .footer{{text-align:center;color:#475569;font-size:.76em;margin-top:20px;padding-top:14px;border-top:1px solid #1e293b}}
+  /* 手機專屬 */
+  @media(max-width:480px){{
+    body{{padding:10px}}
+    .header{{padding:16px 14px;border-radius:10px}}
+    .header-title{{font-size:1.2em}}
+    .header-info{{font-size:.82em;gap:8px 14px}}
+    .level-chip{{font-size:.84em;padding:6px 10px}}
+    .stock-price{{font-size:1.5em}}
+    .legend-grid{{grid-template-columns:1fr}}
+    th,td{{padding:8px 10px;font-size:.84em}}
+  }}
 </style>
 </head>
 <body>
@@ -346,7 +443,7 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
 # ==========================================
 
 # ── 1️⃣ 輸入標的 ──
-st.sidebar.caption("⚡ v3.4 — 2026-06-25")
+st.sidebar.caption("⚡ v3.5 — 2026-06-25")
 st.sidebar.header("1️⃣ 輸入標的")
 st.sidebar.caption("美股直接輸入代碼，台股請加 .TW（如 2330.TW）")
 _n_tickers = st.sidebar.number_input("檔數", min_value=1, max_value=6,
