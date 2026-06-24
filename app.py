@@ -200,6 +200,8 @@ for i in range(int(n_periods)):
         st.caption(f"預計配息：${monthly_coupon_usd:,.2f} USD ≈ {round(monthly_coupon_usd * fx_rate):,} TWD")
         periods.append({"t": i+1, "start": None, "end": None, "pay": p_pay, "amount_usd": monthly_coupon_usd})
 
+filled_periods = [p for p in periods if p.get('pay')]
+
 st.sidebar.divider()
 st.sidebar.header("6️⃣ 回測參數")
 period_months = st.sidebar.number_input("觀察天期（月）", min_value=1.0, max_value=60.0,
@@ -386,207 +388,221 @@ def _tw(font, text):
     bb = font.getbbox(text)
     return bb[2] - bb[0]
 
-def generate_summary_image(ticker, current_price, p_ko, p_ki, p_st,
-                            ko_pct, ki_pct, strike_pct,
-                            coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
-                            principal, first_obs_date, last_obs_date,
-                            safety_prob, positive_prob, period_months,
-                            sections=None):
+def generate_fcn_image(
+    tickers, ko_pct, ki_pct, strike_pct,
+    coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
+    principal, first_obs_date, last_obs_date,
+    filled_periods, ticker_data=None, sections=None,
+):
+    """
+    ticker_data: list of {ticker, current_price, safety_prob, positive_prob} — optional
+    sections:    dict with keys header/periods/status/stocks/legend
+    """
     if sections is None:
-        sections = {k: True for k in ['target','coupon','obs','backtest','periods','disc']}
-    # ── 字型 ──
-    fSM  = _pil_font(18)   # 小字
-    fMD  = _pil_font(22)   # 中字
-    fLG  = _pil_font(28)   # 大字
-    fXL  = _pil_font(36)   # 特大
-    fTIC = _pil_font(52)   # 標的代碼
-    fBIG = _pil_font(80)   # 百分比
+        sections = {k: True for k in ['header','periods','status','stocks','legend']}
 
-    W   = 1200
-    PAD = 24
-    GAP = 14    # 區塊間距
-    IP  = 18    # 區塊內 padding
+    fSM  = _pil_font(17)
+    fMD  = _pil_font(21)
+    fLG  = _pil_font(27)
+    fXL  = _pil_font(34)
+    fTIC = _pil_font(46)
+    fHDR = _pil_font(24)
 
-    # ── 預先計算各行高 ──
-    hSM = _th(fSM)
-    hMD = _th(fMD)
-    hLG = _th(fLG)
-    hBIG= _th(fBIG)
+    W, PAD, GAP, IP = 1200, 24, 12, 16
+    hSM  = _th(fSM); hMD = _th(fMD); hLG = _th(fLG)
+    hXL  = _th(fXL); hTIC = _th(fTIC); hHDR = _th(fHDR)
 
-    # ── 動態算總高 ──
-    filled_periods = [p for p in periods if p['pay']]
-    period_rows = (len(filled_periods) + 3) // 4   # 每行最多 4 期
-    H = (PAD + 80 + GAP           # 標題
-       + IP*2 + hLG + hMD + hSM + 8 + GAP  # 標的 + 關鍵價
-       + IP*2 + hSM + hMD*2 + hLG + 8 + GAP  # 配息 + 比價
-       + IP*2 + hSM + hBIG + hMD + hSM + 16 + GAP  # 回測
-       + (IP*2 + hSM + (hMD + hSM*2 + 8)*period_rows + 8 + GAP if filled_periods else 0)
-       + IP*2 + hSM*4 + 8 + PAD)  # 免責
+    DARK, WHITE = '#1e3a5f', '#ffffff'
 
-    img = Image.new('RGB', (W, H), _hex('#f0f4f8'))
+    img = Image.new('RGB', (W, 3600), _hex('#f0f4f8'))
     d   = ImageDraw.Draw(img)
     y   = PAD
 
-    def row(text, font, color, x=PAD+IP, center=False, right_text=None, right_font=None, right_col='#94a3b8'):
+    def sec_title(title):
         nonlocal y
-        if center:
-            d.text((W//2, y), text, font=font, fill=_hex(color), anchor='la')
-            tw = _tw(font, text)
-            d.text(((W - tw)//2, y), text, font=font, fill=_hex(color))
-        else:
-            d.text((x, y), text, font=font, fill=_hex(color))
-        if right_text:
-            rf = right_font or font
-            rw = _tw(rf, right_text)
-            d.text((W - PAD - IP - rw, y), right_text, font=rf, fill=_hex(right_col))
-        y += _th(font)
+        d.rectangle([PAD, y, W-PAD, y+hHDR+IP*2], fill=_hex(DARK))
+        d.text((PAD+IP, y+IP), title, font=fHDR, fill=_hex(WHITE))
+        y += hHDR + IP*2 + 6
 
-    def section(fill, outline):
-        nonlocal y
-        return y   # 起始 y，結束時呼叫 end_section
+    # ── 1. 產品標題 & 基本資訊 ──
+    if sections.get('header', True):
+        ticker_str = ' + '.join(tickers)
+        title = f'FCN・{ticker_str}・{int(principal):,} USD'
 
-    def end_section(start_y, fill, outline):
-        nonlocal y
-        y += IP
-        _rect(d, PAD, start_y, W-PAD, y, _hex(fill), outline=outline, radius=10)
+        hdr_h = IP + hSM + 8 + hXL + 10 + hMD + IP
+        d.rectangle([PAD, y, W-PAD, y+hdr_h], fill=_hex(DARK), outline=None)
+        d.text((PAD+IP, y+IP), '結構商品全能工作站  FCN/ELN 分析摘要', font=fSM, fill=_hex('#94a3b8'))
+        d.text((PAD+IP, y+IP+hSM+8), title, font=fXL, fill=_hex(WHITE))
+        info_parts = []
+        if first_obs_date: info_parts.append(f'首比價日 {first_obs_date.strftime("%Y/%m/%d")}')
+        if last_obs_date:  info_parts.append(f'末比價日 {last_obs_date.strftime("%Y/%m/%d")}')
+        info_parts += [f'年化率 {coupon_pa:.2f}%',
+                       f'月息 {monthly_coupon_usd:,.0f} USD ≈ {monthly_coupon_twd:,} TWD（匯率{fx_rate:.0f}）']
+        d.text((PAD+IP, y+IP+hSM+8+hXL+10), '   ｜   '.join(info_parts), font=fMD, fill=_hex('#cbd5e1'))
+        y += hdr_h + GAP
+
+        # KO / Strike / KI 一行
+        bar_h = IP + hLG + 6 + hSM + IP
+        _rect(d, PAD, y, W-PAD, y+bar_h, _hex('#eff6ff'), outline='#bfdbfe', radius=8)
+        ky = y + IP
+        for offset, label, col in [
+            (0,   f'▲ KO 敲出  {ko_pct:.0f}%',     '#dc2626'),
+            (360, f'— Strike 執行  {strike_pct:.0f}%', '#16a34a'),
+            (720, f'▼ KI 保護  {ki_pct:.0f}%',      '#d97706'),
+        ]:
+            d.text((PAD+IP+offset, ky), label, font=fLG, fill=_hex(col))
+        d.text((PAD+IP, ky+hLG+4), '以進場價為 100% 基準，Worst-of（最差標的）決定結果', font=fSM, fill=_hex('#64748b'))
+        y += bar_h + GAP
+
+    # ── 2. 配息期程表 ──
+    if sections.get('periods', True) and filled_periods:
+        sec_title('🗓️  配息期程表')
+        n_cols = min(len(filled_periods), 6)
+        cw = (W - PAD*2) // n_cols
+        row_h = IP + hMD + IP
+
+        # header
+        _rect(d, PAD, y, W-PAD, y+row_h, _hex('#1e293b'), outline=None, radius=6)
+        for ci, h in enumerate(['期數', '配息日', '配息 USD', '配息 TWD'][:4] if n_cols <= 4
+                                else ['期', '配息日', 'USD', 'TWD', '期', '配息日'][:n_cols]):
+            d.text((PAD + ci*cw + cw//2 - _tw(fMD, h)//2, y+IP), h, font=fMD, fill=_hex(WHITE))
+        y += row_h
+
+        for idx, p in enumerate(filled_periods):
+            row_bg = '#f8fafc' if idx % 2 == 0 else '#ffffff'
+            _rect(d, PAD, y, W-PAD, y+row_h, _hex(row_bg), outline='#e2e8f0', radius=0)
+            twd_amt = round(p['amount_usd'] * fx_rate)
+            pay_str = p['pay'].strftime('%Y/%m/%d') if p.get('pay') else '—'
+            vals = [f'第 {p["t"]} 期', pay_str, f'${p["amount_usd"]:,.0f}', f'{twd_amt:,}']
+            for ci, v in enumerate(vals):
+                vx = PAD + ci*cw + cw//2 - _tw(fMD, v)//2
+                col = '#16a34a' if ci >= 2 else '#1e293b'
+                d.text((vx, y+IP), v, font=fMD, fill=_hex(col))
+            y += row_h
         y += GAP
 
-    # ────────── 標題 ──────────
-    _rect(d, PAD, y, W-PAD, y+76, _hex('#1e3a5f'), radius=10)
-    d.text((W//2, y+38), '結構商品全能工作站  FCN/ELN 分析摘要',
-           font=fLG, fill=_hex('#ffffff'), anchor='mm')
-    d.text((W-PAD-IP, y+62), f'產出日期：{date.today().strftime("%Y/%m/%d")}',
-           font=fSM, fill=_hex('#94a3b8'), anchor='rm')
-    y += 76 + GAP
-
-    left_w  = (W - PAD*2 - GAP) * 5 // 10
-    right_x = PAD + left_w + GAP
-    hTIC2   = _th(fTIC)
-
-    # ────────── 標的 + 關鍵價位 ──────────
-    if sections.get('target', True):
-        sec_y = y
-        row_h_left = IP*2 + hSM + hTIC2 + hMD + 8
-        levels = [
-            (f'KO ({ko_pct:.0f}%)', f'{p_ko:.2f}', '#dc2626'),
-            (f'Strike ({strike_pct:.0f}%)', f'{p_st:.2f}', '#16a34a'),
-            (f'KI ({ki_pct:.0f}%)', f'{p_ki:.2f}', '#d97706'),
-        ]
-        lev_h = IP*2 + hSM + (hSM + hLG + 8)*3
-        block_h = max(row_h_left, lev_h)
-        _rect(d, PAD, sec_y, PAD+left_w, sec_y+block_h, _hex('#ffffff'), outline='#cbd5e1', radius=10)
-        d.text((PAD+IP, sec_y+IP), '標的 / Underlying', font=fSM, fill=_hex('#94a3b8'))
-        d.text((PAD+IP, sec_y+IP+hSM+4), ticker, font=fTIC, fill=_hex('#1e293b'))
-        d.text((PAD+IP, sec_y+IP+hSM+4+hTIC2+4),
-               f'最新股價：{current_price:.2f}　　觀察天期：{period_months} 個月',
-               font=fMD, fill=_hex('#475569'))
-        _rect(d, right_x, sec_y, W-PAD, sec_y+block_h, _hex('#ffffff'), outline='#cbd5e1', radius=10)
-        lx, ly = right_x+IP, sec_y+IP
-        d.text((lx, ly), '關鍵價位', font=fSM, fill=_hex('#94a3b8'))
-        ly += hSM + 8
-        for label, val, col in levels:
-            d.text((lx, ly), label, font=fSM, fill=_hex('#64748b')); ly += hSM+2
-            d.text((lx, ly), val,   font=fLG,  fill=_hex(col));      ly += hLG+8
-        y += block_h + GAP
-
-    # ────────── 配息資訊 + 比價時程 ──────────
-    show_coupon = sections.get('coupon', True)
-    show_obs    = sections.get('obs', True)
-    if show_coupon or show_obs:
-        coupon_lines = [
-            ('配息資訊', fSM, '#94a3b8'),
-            (f'年化配息率：{coupon_pa:.2f}%', fLG, '#1e293b'),
-            (f'投資本金：${principal:,} USD', fMD, '#475569'),
-            (f'每月配息：${monthly_coupon_usd:,.2f} USD  ≈  {monthly_coupon_twd:,} TWD（匯率{fx_rate:.0f}）', fMD, '#c2410c'),
-        ]
-        ch = IP + sum(_th(f) for _,f,_ in coupon_lines) + 8 + IP
-
-        obs_lines = ['比價時程']
-        if first_obs_date and last_obs_date:
-            days_to_first = (first_obs_date - date.today()).days
-            status = f'還有 {days_to_first} 天' if days_to_first > 0 else ('比價進行中' if days_to_first >= 0 else '保證期已過')
-            obs_lines += [f'首個比價日：{first_obs_date.strftime("%Y/%m/%d")}  ({status})',
-                          f'最後比價日：{last_obs_date.strftime("%Y/%m/%d")}']
+    # ── 3. 整體狀況 (需先分析) ──
+    if sections.get('status', True):
+        if not ticker_data:
+            sec_title('📊  整體狀況')
+            _rect(d, PAD, y, W-PAD, y+IP*2+hMD, _hex('#fefce8'), outline='#fde68a', radius=8)
+            d.text((PAD+IP, y+IP), '⚠ 請先按「🚀 開始分析」後再製圖，才能顯示此區塊', font=fMD, fill=_hex('#92400e'))
+            y += IP*2+hMD+GAP
         else:
-            obs_lines += ['（未設定比價日期）']
-        obs_fonts = [fSM, fMD, fMD]
-        obs_cols  = ['#94a3b8', '#1e293b', '#1e293b']
-        oh = IP + sum(_th(obs_fonts[i]) for i in range(min(len(obs_lines),3))) + 8 + IP
-        sec_h = max(ch if show_coupon else 0, oh if show_obs else 0)
+            sec_title('📊  整體狀況')
+            n = len(ticker_data)
+            card_w = (W - PAD*2 - GAP*(n-1)) // n
+            card_h = IP + hSM + 8 + hTIC + IP
+            for ci, td in enumerate(ticker_data):
+                cx = PAD + ci*(card_w+GAP)
+                cp = td['current_price']
+                sp = td['safety_prob']
+                safe_col = '#16a34a' if sp >= 80 else ('#d97706' if sp >= 60 else '#dc2626')
+                _rect(d, cx, y, cx+card_w, y+card_h, _hex('#ffffff'), outline='#e2e8f0', radius=10)
+                d.text((cx+IP, y+IP), td['ticker'], font=fSM, fill=_hex('#94a3b8'))
+                d.text((cx+IP, y+IP+hSM+8), f'${cp:.2f}', font=fTIC, fill=_hex('#1e293b'))
+                safe_txt = f'安全率 {sp:.1f}%'
+                d.text((cx+card_w-IP-_tw(fSM, safe_txt), y+IP), safe_txt, font=fSM, fill=_hex(safe_col))
+            y += card_h + GAP
 
-        lw2 = left_w if (show_coupon and show_obs) else (W - PAD*2)
-        rx2 = PAD + lw2 + GAP
+    # ── 4. 個股詳細卡片 (需先分析) ──
+    if sections.get('stocks', True):
+        if not ticker_data:
+            sec_title('📈  個股詳細卡片')
+            _rect(d, PAD, y, W-PAD, y+IP*2+hMD, _hex('#fefce8'), outline='#fde68a', radius=8)
+            d.text((PAD+IP, y+IP), '⚠ 請先按「🚀 開始分析」後再製圖，才能顯示此區塊', font=fMD, fill=_hex('#92400e'))
+            y += IP*2+hMD+GAP
+        else:
+            sec_title('📈  個股詳細卡片')
+            n = len(ticker_data)
+            card_w = (W - PAD*2 - GAP*(n-1)) // n
+            bar_h  = 18
+            card_h = IP + hTIC + 8 + hMD + 12 + bar_h + 8 + hSM*3 + 8 + hMD*2 + IP
 
-        if show_coupon:
-            _rect(d, PAD, y, PAD+lw2, y+sec_h, _hex('#fff7ed'), outline='#fed7aa', radius=10)
-            cy = y + IP
-            for txt, fnt, col in coupon_lines:
-                d.text((PAD+IP, cy), txt, font=fnt, fill=_hex(col)); cy += _th(fnt)
-        if show_obs:
-            _rect(d, rx2, y, W-PAD, y+sec_h, _hex('#f0fdf4'), outline='#bbf7d0', radius=10)
-            oy = y + IP
-            for i, txt in enumerate(obs_lines[:3]):
-                d.text((rx2+IP, oy), txt, font=obs_fonts[i], fill=_hex(obs_cols[i])); oy += _th(obs_fonts[i])
-        y += sec_h + GAP
+            for ci, td in enumerate(ticker_data):
+                cx = PAD + ci*(card_w+GAP)
+                cp = td['current_price']
+                ko_p  = cp * ko_pct  / 100
+                st_p  = cp * strike_pct / 100
+                ki_p  = cp * ki_pct  / 100
+                sp    = td['safety_prob']
+                pp    = td['positive_prob']
+                safe_col = '#16a34a' if sp >= 80 else ('#d97706' if sp >= 60 else '#dc2626')
+                pos_col  = '#16a34a' if pp >= 60 else '#d97706'
 
-    # ────────── 回測結果 ──────────
-    if sections.get('backtest', True):
-        safe_col = '#16a34a' if safety_prob >= 80 else ('#d97706' if safety_prob >= 60 else '#dc2626')
-        pos_col  = '#16a34a' if positive_prob >= 60 else '#d97706'
-        loss_pct = 100 - safety_prob
-        stat_h = IP + hSM + 16 + hBIG + 10 + hMD + 6 + hSM + IP
-        _rect(d, PAD, y, W-PAD, y+stat_h, _hex('#ffffff'), outline='#cbd5e1', radius=10)
-        d.text((PAD+IP, y+IP), '歷史回測結果（2009 至今）', font=fSM, fill=_hex('#94a3b8'))
-        cols_x = [W//6, W//2, W*5//6]
-        stats_data = [
-            (f'{safety_prob:.1f}%', safe_col, '安全機率', '（不觸發接股）'),
-            (f'{positive_prob:.1f}%', pos_col, '正報酬機率', '（期末股價高於進場）'),
-            (f'{loss_pct:.1f}%', '#dc2626', '接股機率', ''),
+                _rect(d, cx, y, cx+card_w, y+card_h, _hex('#ffffff'), outline='#e2e8f0', radius=10)
+                iy = y + IP
+
+                # Ticker + price
+                d.text((cx+IP, iy), td['ticker'], font=fTIC, fill=_hex('#1e293b'))
+                iy += hTIC + 8
+                d.text((cx+IP, iy), f'現價  ${cp:.2f}', font=fMD, fill=_hex('#475569'))
+                iy += hMD + 12
+
+                # Price bar
+                bx0, bx1 = cx+IP, cx+card_w-IP
+                btotal = bx1 - bx0
+                rng_lo, rng_hi = ki_pct * 0.75, ko_pct * 1.25
+                rng = rng_hi - rng_lo
+
+                def px(pct):
+                    return bx0 + int((pct - rng_lo) / rng * btotal)
+
+                d.rectangle([bx0, iy, bx1, iy+bar_h], fill=_hex('#e2e8f0'))
+                xi = px(ki_pct); xs = px(strike_pct); xk = px(ko_pct)
+                if xi < xs:
+                    d.rectangle([max(bx0,xi), iy, min(bx1,xs), iy+bar_h], fill=_hex('#fecaca'))
+                if xs < xk:
+                    d.rectangle([max(bx0,xs), iy, min(bx1,xk), iy+bar_h], fill=_hex('#bbf7d0'))
+                if xk < bx1:
+                    d.rectangle([xk, iy, bx1, iy+bar_h], fill=_hex('#4ade80'))
+                xc = px(100)
+                d.rectangle([xc-2, iy-3, xc+2, iy+bar_h+3], fill=_hex('#1e293b'))
+                iy += bar_h + 8
+
+                # Level labels
+                for label, col_l in [
+                    (f'▼ KI {ki_pct:.0f}%  ${ki_p:.2f}', '#d97706'),
+                    (f'— Strike {strike_pct:.0f}%  ${st_p:.2f}', '#16a34a'),
+                    (f'▲ KO {ko_pct:.0f}%  ${ko_p:.2f}', '#dc2626'),
+                ]:
+                    d.text((cx+IP, iy), label, font=fSM, fill=_hex(col_l)); iy += hSM+2
+                iy += 6
+
+                # Backtest stats
+                d.text((cx+IP, iy), f'安全機率：{sp:.1f}%', font=fMD, fill=_hex(safe_col))
+                iy += hMD
+                d.text((cx+IP, iy), f'正報酬機率：{pp:.1f}%', font=fMD, fill=_hex(pos_col))
+
+            y += card_h + GAP
+
+    # ── 5. KO / Strike / KI 條件說明 ──
+    if sections.get('legend', True):
+        sec_title('📝  條件說明')
+        leg_data = [
+            ('KO 自動提前解構', '▲ KO 敲出', '#dc2626', '#fff1f2', '#fecaca',
+             '三檔標的皆高於KO，當天自動提前結束，', '返還本金＋當期配息及連結獎金。'),
+            ('Strike 執行價', '— Strike', '#16a34a', '#f0fdf4', '#bbf7d0',
+             '到期時若股價低於執行價，以此價格「接股」。', '以進場價比較，投資人損失差價。'),
+            ('KI 保護價', '▼ KI 保護', '#d97706', '#fffbeb', '#fde68a',
+             '最差標的曾跌破KI，需再比較Strike才能', '確認本金是否損失，不一定損失。'),
         ]
-        base_y = y + IP + hSM + 16
-        for cx, (pct, col, label, sub) in zip(cols_x, stats_data):
-            pw = _tw(fBIG, pct); d.text((cx-pw//2, base_y), pct, font=fBIG, fill=_hex(col))
-            lw = _tw(fMD, label); d.text((cx-lw//2, base_y+hBIG+10), label, font=fMD, fill=_hex('#475569'))
-            if sub:
-                sw = _tw(fSM, sub); d.text((cx-sw//2, base_y+hBIG+10+hMD+4), sub, font=fSM, fill=_hex('#94a3b8'))
-        y += stat_h + GAP
+        leg_w = (W - PAD*2 - GAP*2) // 3
+        leg_h = IP + hSM + 6 + hLG + 10 + hSM*2 + 6 + IP
+        for ci, (title_l, badge, col, bg, border, line1, line2) in enumerate(leg_data):
+            lx = PAD + ci*(leg_w+GAP)
+            _rect(d, lx, y, lx+leg_w, y+leg_h, _hex(bg), outline=border, radius=10)
+            d.text((lx+IP, y+IP), title_l, font=fSM, fill=_hex('#64748b'))
+            d.text((lx+IP, y+IP+hSM+6), badge, font=fLG, fill=_hex(col))
+            d.text((lx+IP, y+IP+hSM+6+hLG+8), line1, font=fSM, fill=_hex('#374151'))
+            d.text((lx+IP, y+IP+hSM+6+hLG+8+hSM+3), line2, font=fSM, fill=_hex('#374151'))
+        y += leg_h + GAP
 
-    # ────────── 配息期程 ──────────
-    if sections.get('periods', True) and filled_periods:
-        n_cols = min(len(filled_periods), 4)
-        col_w  = (W - PAD*2 - IP*2) // n_cols
-        rows_needed = (len(filled_periods) + n_cols - 1) // n_cols
-        per_h  = IP + hSM + 16 + rows_needed * (hSM + hMD + hSM + 8) + IP
-        _rect(d, PAD, y, W-PAD, y+per_h, _hex('#ffffff'), outline='#e2e8f0', radius=10)
-        d.text((PAD+IP, y+IP), f'配息期程（共 {len(filled_periods)} 期）', font=fSM, fill=_hex('#94a3b8'))
-        for idx, p in enumerate(filled_periods):
-            ri, ci = idx // n_cols, idx % n_cols
-            px = PAD + IP + ci * col_w
-            py = y + IP + hSM + 16 + ri * (hSM + hMD + hSM + 8)
-            twd = round(p['amount_usd'] * fx_rate)
-            d.text((px, py),           f'第 {p["t"]} 期', font=fSM, fill=_hex('#94a3b8'))
-            d.text((px, py+hSM+2),     p['pay'].strftime('%Y/%m/%d'), font=fMD, fill=_hex('#1e293b'))
-            d.text((px, py+hSM+hMD+4), f'${p["amount_usd"]:,.0f}  /  {twd:,} TWD', font=fSM, fill=_hex('#16a34a'))
-        y += per_h + GAP
+    # watermark
+    wm = f'結構商品全能工作站  {date.today().strftime("%Y/%m/%d")}'
+    d.text((W-PAD-_tw(fSM, wm), y), wm, font=fSM, fill=_hex('#cbd5e1'))
+    y += hSM
 
-    # ────────── 免責聲明 ──────────
-    if sections.get('disc', True):
-        disc = [
-            ('⚠ 免責聲明', fSM, '#dc2626'),
-            ('本分析摘要僅供參考，不構成投資建議。歷史回測不代表未來績效。', fSM, '#7f1d1d'),
-            ('ELN/FCN 為非保本商品，最大風險為本金全部損失。', fSM, '#7f1d1d'),
-            ('股價資料來源：Yahoo Finance，可能存在延遲或誤差。', fSM, '#7f1d1d'),
-        ]
-        disc_h = IP + sum(_th(f) for _,f,_ in disc) + 8 + IP
-        _rect(d, PAD, y, W-PAD, y+disc_h, _hex('#fff1f2'), outline='#fecada', radius=10)
-        dy = y + IP
-        for txt, fnt, col in disc:
-            d.text((PAD+IP, dy), txt, font=fnt, fill=_hex(col))
-            dy += _th(fnt)
-        d.text((W-PAD-IP, y+disc_h-IP-hSM), '結構商品全能工作站', font=fSM, fill=_hex('#94a3b8'), anchor='la')
-        y += disc_h
-
-    # ── 裁切到實際高度 ──
     img = img.crop((0, 0, W, y + PAD))
     buf = io.BytesIO()
     img.save(buf, format='PNG')
@@ -810,65 +826,60 @@ if st.session_state.get('show_results'):
     # 8️⃣  製圖工具
     # ══════════════════════════════════════
     st.divider()
-    st.markdown("## 🖼️ 製圖工具")
-    st.caption("勾選要呈現的區塊，再按「開始製圖」產出給客戶的圖片。")
-
-    _img_ticker_opts = [cd['標的'] for cd in comparison_data] if comparison_data else ticker_list
-    _img_ticker = st.selectbox("選擇標的", _img_ticker_opts, key='img_ticker_sel') if len(_img_ticker_opts) > 1 else _img_ticker_opts[0]
+    st.markdown("## 🖼️ 製圖")
+    st.caption("勾選要放入圖片的區塊，再按「開始製圖」。第 3、4 區需先按「🚀 開始分析」才能顯示。")
 
     col_a, col_b = st.columns(2)
     with col_a:
-        sec_target  = st.checkbox("📌 標的股票 & 關鍵價位", value=True)
-        sec_coupon  = st.checkbox("💰 配息資訊（年化配息率 / 每月配息）", value=True)
-        sec_obs     = st.checkbox("📅 比價時程（首個 / 最後比價日）", value=True)
-    with col_b:
-        sec_backtest= st.checkbox("📊 歷史回測結果（安全 / 正報酬 / 接股機率）", value=True)
+        sec_header  = st.checkbox("🏷️ 產品標題 & 基本資訊", value=True)
         sec_periods = st.checkbox("🗓️ 配息期程表", value=True)
-        sec_disc    = st.checkbox("⚠️ 免責聲明", value=True)
+        sec_legend  = st.checkbox("📝 KO / Strike / KI 條件說明", value=True)
+    with col_b:
+        sec_status  = st.checkbox("📊 整體狀況（需先分析）", value=True)
+        sec_stocks  = st.checkbox("📈 個股詳細卡片（需先分析）", value=True)
 
     _sections = {
-        'target':   sec_target,
-        'coupon':   sec_coupon,
-        'obs':      sec_obs,
-        'backtest': sec_backtest,
-        'periods':  sec_periods,
-        'disc':     sec_disc,
+        'header':  sec_header,
+        'periods': sec_periods,
+        'legend':  sec_legend,
+        'status':  sec_status,
+        'stocks':  sec_stocks,
     }
 
     if st.button("🖼️ 開始製圖", type="primary", use_container_width=True):
-        # 找對應標的的回測資料
-        _ticker_stats = st.session_state.get(f'stats_{_img_ticker}')
-        _ticker_price = st.session_state.get(f'price_{_img_ticker}')
-
-        if _ticker_stats and _ticker_price:
-            _cp = _ticker_price['current_price']
-            _ko = _cp * (ko_pct / 100)
-            _st = _cp * (strike_pct / 100)
-            _ki = _cp * (ki_pct / 100)
-            try:
-                _img = generate_summary_image(
-                    _img_ticker, _cp, _ko, _ki, _st,
-                    ko_pct, ki_pct, strike_pct,
-                    coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
-                    principal, first_obs_date, last_obs_date,
-                    _ticker_stats['safety_prob'], _ticker_stats['positive_prob'],
-                    period_months, sections=_sections,
-                )
-                import base64 as _b64
-                _b64_str = _b64.b64encode(_img).decode()
-                _fn = f"{_img_ticker}_FCN客戶圖_{date.today().strftime('%Y%m%d')}.png"
-                st.markdown(
-                    f'<a href="data:image/png;base64,{_b64_str}" download="{_fn}" '
-                    f'style="display:block;width:100%;text-align:center;padding:12px;'
-                    f'background:#1e3a5f;color:white;border-radius:8px;font-weight:bold;'
-                    f'text-decoration:none;font-size:1.05em;">📥 下載客戶圖片（{_img_ticker}）</a>',
-                    unsafe_allow_html=True,
-                )
-                st.success("圖片已產出，點上方連結下載。")
-            except Exception as e:
-                st.error(f"製圖失敗：{e}")
-        else:
-            st.warning("請先按「🚀 開始分析」取得回測資料，再製圖。")
+        # 收集所有已分析標的的資料
+        _ticker_data = []
+        for _t in ticker_list:
+            _s = st.session_state.get(f'stats_{_t}')
+            _p = st.session_state.get(f'price_{_t}')
+            if _s and _p:
+                _ticker_data.append({
+                    'ticker': _t,
+                    'current_price': _p['current_price'],
+                    'safety_prob':   _s['safety_prob'],
+                    'positive_prob': _s['positive_prob'],
+                })
+        try:
+            _img = generate_fcn_image(
+                ticker_list, ko_pct, ki_pct, strike_pct,
+                coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
+                principal, first_obs_date, last_obs_date,
+                filled_periods, ticker_data=_ticker_data or None,
+                sections=_sections,
+            )
+            import base64 as _b64
+            _b64_str = _b64.b64encode(_img).decode()
+            _fn = f"FCN客戶圖_{date.today().strftime('%Y%m%d')}.png"
+            st.markdown(
+                f'<a href="data:image/png;base64,{_b64_str}" download="{_fn}" '
+                f'style="display:block;width:100%;text-align:center;padding:12px;'
+                f'background:#1e3a5f;color:white;border-radius:8px;font-weight:bold;'
+                f'text-decoration:none;font-size:1.05em;">📥 下載客戶圖片</a>',
+                unsafe_allow_html=True,
+            )
+            st.success("圖片已產出，點上方連結下載。")
+        except Exception as e:
+            st.error(f"製圖失敗：{e}")
 
 else:
     st.info("👈 請在左側設定參數，按下「開始分析」。")
