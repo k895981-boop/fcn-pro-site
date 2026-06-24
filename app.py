@@ -7,6 +7,22 @@ import numpy as np
 import streamlit.components.v1 as components
 from datetime import datetime, date, timedelta
 import io
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import matplotlib.font_manager as fm
+import warnings
+warnings.filterwarnings('ignore')
+
+# 嘗試設定支援中文的字型
+_cjk_fonts = ['Microsoft YaHei', 'SimHei', 'PingFang TC', 'Noto Sans CJK TC',
+               'Noto Sans CJK SC', 'WenQuanYi Micro Hei', 'DejaVu Sans']
+for _f in _cjk_fonts:
+    if any(_f.lower() in f.name.lower() for f in fm.fontManager.ttflist):
+        matplotlib.rcParams['font.family'] = _f
+        break
+matplotlib.rcParams['axes.unicode_minus'] = False
 
 st.set_page_config(page_title="結構商品全能工作站", layout="wide", page_icon="🏦")
 
@@ -92,9 +108,9 @@ n_periods = st.sidebar.number_input("期數", min_value=1, max_value=24, value=4
 periods = []
 for i in range(int(n_periods)):
     with st.sidebar.expander(f"第 {i+1} 期", expanded=(i == 0)):
-        p_pay   = st.date_input(f"配息日", value=None, key=f"pp_{i}")
-        p_amt   = st.number_input(f"預計配息（USD）", value=monthly_coupon_usd, step=100.0, format="%.2f", key=f"pa_{i}")
-        periods.append({"t": i+1, "start": None, "end": None, "pay": p_pay, "amount_usd": p_amt})
+        p_pay = st.date_input(f"配息日", value=None, key=f"pp_{i}")
+        st.caption(f"預計配息：${monthly_coupon_usd:,.2f} USD ≈ {round(monthly_coupon_usd * fx_rate):,} TWD")
+        periods.append({"t": i+1, "start": None, "end": None, "pay": p_pay, "amount_usd": monthly_coupon_usd})
 
 st.sidebar.divider()
 st.sidebar.header("6️⃣ 回測參數")
@@ -236,6 +252,118 @@ def plot_heatmap(bt_data, ticker):
     fig.update_layout(height=350)
     return fig
 
+def generate_summary_image(ticker, current_price, p_ko, p_ki, p_st,
+                            ko_pct, ki_pct, strike_pct,
+                            coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
+                            principal, first_obs_date, last_obs_date,
+                            safety_prob, positive_prob, period_months):
+    fig, ax = plt.subplots(figsize=(11, 8))
+    ax.set_xlim(0, 11)
+    ax.set_ylim(0, 8)
+    ax.axis('off')
+    fig.patch.set_facecolor('#f0f4f8')
+
+    # 頂部標題列
+    ax.add_patch(patches.FancyBboxPatch((0.2, 6.9), 10.6, 0.9,
+        boxstyle="round,pad=0.05", facecolor='#1e3a5f', edgecolor='none'))
+    ax.text(5.5, 7.38, '結構商品全能工作站  FCN/ELN 分析摘要', ha='center', va='center',
+            fontsize=16, color='white', fontweight='bold')
+    ax.text(10.6, 6.95, f'產出日期：{date.today().strftime("%Y/%m/%d")}',
+            ha='right', va='bottom', fontsize=8, color='#94a3b8')
+
+    # ── 標的資訊 ──
+    ax.add_patch(patches.FancyBboxPatch((0.2, 5.7), 5.0, 1.05,
+        boxstyle="round,pad=0.05", facecolor='white', edgecolor='#cbd5e1', linewidth=0.8))
+    ax.text(0.5, 6.62, '標的', fontsize=9, color='#64748b')
+    ax.text(0.5, 6.35, ticker, fontsize=20, color='#1e293b', fontweight='bold')
+    ax.text(0.5, 6.10, f'最新股價：{current_price:.2f}', fontsize=10, color='#475569')
+    ax.text(3.5, 6.10, f'觀察天期：{period_months} 個月', fontsize=10, color='#475569')
+
+    # ── 關鍵價位 ──
+    ax.add_patch(patches.FancyBboxPatch((5.4, 5.7), 5.4, 1.05,
+        boxstyle="round,pad=0.05", facecolor='white', edgecolor='#cbd5e1', linewidth=0.8))
+    ax.text(5.7, 6.62, '關鍵價位', fontsize=9, color='#64748b')
+    levels = [
+        (f'KO ({ko_pct:.0f}%)', f'{p_ko:.2f}', '#dc2626'),
+        (f'Strike ({strike_pct:.0f}%)', f'{p_st:.2f}', '#16a34a'),
+        (f'KI ({ki_pct:.0f}%)', f'{p_ki:.2f}', '#d97706'),
+    ]
+    for idx, (label, val, color) in enumerate(levels):
+        x = 5.7 + idx * 1.8
+        ax.text(x, 6.32, label, fontsize=8, color='#64748b')
+        ax.text(x, 6.08, val, fontsize=12, color=color, fontweight='bold')
+
+    # ── 配息資訊 ──
+    ax.add_patch(patches.FancyBboxPatch((0.2, 4.5), 5.0, 1.05,
+        boxstyle="round,pad=0.05", facecolor='#fff7ed', edgecolor='#fed7aa', linewidth=0.8))
+    ax.text(0.5, 5.42, '配息資訊', fontsize=9, color='#64748b')
+    ax.text(0.5, 5.15, f'年化配息率：{coupon_pa:.2f}%', fontsize=11, color='#1e293b', fontweight='bold')
+    ax.text(0.5, 4.88, f'投資本金：${principal:,} USD', fontsize=10, color='#475569')
+    ax.text(0.5, 4.63, f'每月預計配息：${monthly_coupon_usd:,.2f} USD  ≈  {monthly_coupon_twd:,} TWD（匯率{fx_rate:.0f}）',
+            fontsize=10, color='#c2410c', fontweight='bold')
+
+    # ── 比價時程 ──
+    ax.add_patch(patches.FancyBboxPatch((5.4, 4.5), 5.4, 1.05,
+        boxstyle="round,pad=0.05", facecolor='#f0fdf4', edgecolor='#bbf7d0', linewidth=0.8))
+    ax.text(5.7, 5.42, '比價時程', fontsize=9, color='#64748b')
+    if first_obs_date and last_obs_date:
+        days_to_first = (first_obs_date - date.today()).days
+        status = f'還有 {days_to_first} 天' if days_to_first > 0 else ('比價進行中' if days_to_first >= 0 else '保證期已過')
+        ax.text(5.7, 5.15, f'首個比價日：{first_obs_date.strftime("%Y/%m/%d")}  ({status})', fontsize=10, color='#1e293b')
+        ax.text(5.7, 4.88, f'最後比價日：{last_obs_date.strftime("%Y/%m/%d")}', fontsize=10, color='#1e293b')
+    else:
+        ax.text(5.7, 5.05, '（未設定比價日期）', fontsize=10, color='#94a3b8')
+
+    # ── 回測結果 ──
+    ax.add_patch(patches.FancyBboxPatch((0.2, 2.8), 10.6, 1.55,
+        boxstyle="round,pad=0.05", facecolor='white', edgecolor='#cbd5e1', linewidth=0.8))
+    ax.text(0.5, 4.22, '歷史回測結果（2009 至今）', fontsize=9, color='#64748b')
+
+    safe_color = '#16a34a' if safety_prob >= 80 else ('#d97706' if safety_prob >= 60 else '#dc2626')
+    pos_color  = '#16a34a' if positive_prob >= 60 else '#d97706'
+
+    ax.text(1.5, 3.75, f'{safety_prob:.1f}%', fontsize=32, color=safe_color, fontweight='bold', ha='center')
+    ax.text(1.5, 3.25, '安全機率', fontsize=11, color='#475569', ha='center')
+    ax.text(1.5, 3.00, '（不觸發接股）', fontsize=9, color='#94a3b8', ha='center')
+
+    ax.text(5.5, 3.75, f'{positive_prob:.1f}%', fontsize=32, color=pos_color, fontweight='bold', ha='center')
+    ax.text(5.5, 3.25, '正報酬機率', fontsize=11, color='#475569', ha='center')
+    ax.text(5.5, 3.00, '（期末股價高於進場）', fontsize=9, color='#94a3b8', ha='center')
+
+    loss_pct = 100 - safety_prob
+    ax.text(9.5, 3.65, f'{loss_pct:.1f}%', fontsize=22, color='#dc2626', fontweight='bold', ha='center')
+    ax.text(9.5, 3.25, '接股機率', fontsize=11, color='#475569', ha='center')
+
+    # ── 配息期程 ──
+    filled_periods = [p for p in periods if p['pay']]
+    if filled_periods:
+        ax.add_patch(patches.FancyBboxPatch((0.2, 1.5), 10.6, 1.15,
+            boxstyle="round,pad=0.05", facecolor='white', edgecolor='#e2e8f0', linewidth=0.8))
+        ax.text(0.5, 2.52, f'配息期程（共 {len(filled_periods)} 期）', fontsize=9, color='#64748b')
+        for idx, p in enumerate(filled_periods[:6]):
+            x = 0.5 + idx * 1.75
+            twd = round(p['amount_usd'] * fx_rate)
+            ax.text(x, 2.22, f'第{p["t"]}期', fontsize=8, color='#94a3b8')
+            ax.text(x, 2.00, p['pay'].strftime('%Y/%m/%d'), fontsize=9, color='#1e293b', fontweight='bold')
+            ax.text(x, 1.75, f'${p["amount_usd"]:,.0f}', fontsize=9, color='#16a34a')
+            ax.text(x, 1.58, f'{twd:,} TWD', fontsize=8, color='#64748b')
+
+    # ── 底部免責 ──
+    ax.add_patch(patches.FancyBboxPatch((0.2, 0.05), 10.6, 1.3,
+        boxstyle="round,pad=0.05", facecolor='#fff1f2', edgecolor='#fecaca', linewidth=0.8))
+    ax.text(0.5, 1.22, '⚠  免責聲明', fontsize=8, color='#dc2626', fontweight='bold')
+    ax.text(0.5, 1.02, '本分析摘要僅供參考，不構成投資建議。歷史回測不代表未來績效。', fontsize=8, color='#7f1d1d')
+    ax.text(0.5, 0.80, 'ELN/FCN 為非保本商品，最大風險為本金全部損失。', fontsize=8, color='#7f1d1d')
+    ax.text(0.5, 0.58, '股價資料來源：Yahoo Finance，可能存在延遲。請以發行機構公開說明書為準。', fontsize=8, color='#7f1d1d')
+    ax.text(10.6, 0.15, '結構商品全能工作站', ha='right', fontsize=7, color='#94a3b8')
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', bbox_inches='tight', dpi=150, facecolor=fig.get_facecolor())
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue()
+
+
 def show_tradingview(symbol):
     html_code = f"""
     <div style="transform: scale(1.2); transform-origin: top left; width: 83.3%;">
@@ -289,7 +417,7 @@ if run_btn:
         """, unsafe_allow_html=True)
 
         # 配息期程表
-        if any(p['start'] and p['end'] and p['pay'] for p in periods):
+        if any(p['pay'] for p in periods):
             st.markdown("### 💰 配息期程")
             rows = []
             total_usd = 0
@@ -337,7 +465,6 @@ if run_btn:
 
     for ticker in ticker_list:
         st.markdown(f"---\n### 📌 標的：{ticker}")
-        show_tradingview(ticker)
 
         with st.spinner(f"正在分析 {ticker}..."):
             df, err = get_stock_data(ticker)
@@ -393,6 +520,25 @@ if run_btn:
         3. **恢復力分析**：若發生接股票（機率約 {loss_pct:.1f}%），平均 **{stats['avg_recovery']:.0f} 天** 漲回 Strike
            *（尚未解套比例：{stuck_rate:.1f}%）*
         """)
+
+        # 一鍵產出圖片
+        try:
+            img_bytes = generate_summary_image(
+                ticker, current_price, p_ko, p_ki, p_st,
+                ko_pct, ki_pct, strike_pct,
+                coupon_pa, monthly_coupon_usd, monthly_coupon_twd, fx_rate,
+                principal, first_obs_date, last_obs_date,
+                stats['safety_prob'], stats['positive_prob'], period_months
+            )
+            st.download_button(
+                label=f"📸 一鍵產出分析摘要圖片（{ticker}）",
+                data=img_bytes,
+                file_name=f"{ticker}_FCN分析摘要_{date.today().strftime('%Y%m%d')}.png",
+                mime="image/png",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.warning(f"圖片產出失敗：{e}")
 
         fig_bar = plot_bar_chart(bt_data, ticker)
         st.plotly_chart(fig_bar, use_container_width=True, config={'toImageButtonOptions': {'format': 'png', 'filename': f'{ticker}_回測圖', 'scale': 2}})
