@@ -317,7 +317,7 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
 # ==========================================
 
 # ── 1️⃣ 輸入標的 ──
-st.sidebar.caption("⚡ v3.2 — 2026-06-25")
+st.sidebar.caption("⚡ v3.3 — 2026-06-25")
 st.sidebar.header("1️⃣ 輸入標的")
 st.sidebar.caption("美股直接輸入代碼，台股請加 .TW（如 2330.TW）")
 _n_tickers = st.sidebar.number_input("檔數", min_value=1, max_value=6,
@@ -610,11 +610,15 @@ def generate_fcn_image(
         d.rectangle([PAD, y, W-PAD, y+hdr_h], fill=_hex(DARK), outline=None)
         d.text((PAD+IP, y+IP), '結構商品全能工作站  FCN/ELN 分析摘要', font=fSM, fill=_hex('#94a3b8'))
         d.text((PAD+IP, y+IP+hSM+8), title, font=fXL, fill=_hex(WHITE))
+        _total_usd = sum(p['amount_usd'] for p in filled_periods) if filled_periods else 0
+        _total_twd = round(_total_usd * fx_rate)
+        _n_p = len(filled_periods)
         info_parts = []
         if first_obs_date: info_parts.append(f'首比價日 {first_obs_date.strftime("%Y/%m/%d")}')
         if last_obs_date:  info_parts.append(f'末比價日 {last_obs_date.strftime("%Y/%m/%d")}')
         info_parts += [f'年化率 {coupon_pa:.2f}%',
                        f'月息 {monthly_coupon_usd:,.0f} USD ≈ {monthly_coupon_twd:,} TWD（匯率{fx_rate:.0f}）']
+        if _n_p: info_parts.append(f'共 {_n_p} 期  總配息 ${_total_usd:,.0f} USD ≈ {_total_twd:,} TWD')
         d.text((PAD+IP, y+IP+hSM+8+hXL+10), '   ｜   '.join(info_parts), font=fMD, fill=_hex('#cbd5e1'))
         y += hdr_h + GAP
 
@@ -656,7 +660,16 @@ def generate_fcn_image(
                 col = '#16a34a' if ci >= 2 else '#1e293b'
                 d.text((vx, y+IP), v, font=fMD, fill=_hex(col))
             y += row_h
-        y += GAP
+
+        # 合計列
+        _sum_usd = sum(p['amount_usd'] for p in filled_periods)
+        _sum_twd = round(_sum_usd * fx_rate)
+        _rect(d, PAD, y, W-PAD, y+row_h, _hex('#0f172a'), outline=None, radius=0)
+        total_vals = [f'共 {len(filled_periods)} 期', '合計', f'${_sum_usd:,.0f}', f'{_sum_twd:,}']
+        for ci, v in enumerate(total_vals):
+            vx = PAD + ci*cw + cw//2 - _tw(fMD, v)//2
+            d.text((vx, y+IP), v, font=fMD, fill=_hex(WHITE))
+        y += row_h + GAP
 
     # ── 3. 整體狀況 (已停用) ──
 
@@ -671,8 +684,7 @@ def generate_fcn_image(
             sec_title('個股詳細卡片')
             n = len(ticker_data)
             card_w = (W - PAD*2 - GAP*(n-1)) // n
-            bar_h  = 18
-            card_h = IP + hTIC + 8 + hSM + 4 + hMD + 12 + bar_h + 8 + hSM*3 + IP
+            card_h = IP + hTIC + 8 + hSM + 4 + hMD + 12 + hSM*3 + IP
 
             for ci, td in enumerate(ticker_data):
                 cx = PAD + ci*(card_w+GAP)
@@ -692,27 +704,6 @@ def generate_fcn_image(
                 iy += hSM + 4
                 d.text((cx+IP, iy), f'${cp:.2f}', font=fMD, fill=_hex('#475569'))
                 iy += hMD + 12
-
-                # Price bar
-                bx0, bx1 = cx+IP, cx+card_w-IP
-                btotal = bx1 - bx0
-                rng_lo, rng_hi = ki_pct * 0.75, ko_pct * 1.25
-                rng = rng_hi - rng_lo
-
-                def px(pct):
-                    return bx0 + int((pct - rng_lo) / rng * btotal)
-
-                d.rectangle([bx0, iy, bx1, iy+bar_h], fill=_hex('#e2e8f0'))
-                xi = px(ki_pct); xs = px(strike_pct); xk = px(ko_pct)
-                if xi < xs:
-                    d.rectangle([max(bx0,xi), iy, min(bx1,xs), iy+bar_h], fill=_hex('#fecaca'))
-                if xs < xk:
-                    d.rectangle([max(bx0,xs), iy, min(bx1,xk), iy+bar_h], fill=_hex('#bbf7d0'))
-                if xk < bx1:
-                    d.rectangle([xk, iy, bx1, iy+bar_h], fill=_hex('#4ade80'))
-                xc = px(100)
-                d.rectangle([xc-2, iy-3, xc+2, iy+bar_h+3], fill=_hex('#1e293b'))
-                iy += bar_h + 8
 
                 # Level labels — format: ▼ KI $209.61(60%)
                 for label, col_l in [
@@ -785,81 +776,6 @@ if st.session_state.get('show_results'):
     if not ticker_list:
         st.warning("請輸入股票代碼")
         st.stop()
-
-    # ── 產品概覽卡 ──
-    has_dates = first_obs_date and last_obs_date
-    if has_dates:
-        st.markdown("## 📋 產品概覽")
-        today = date.today()
-        days_to_first = (first_obs_date - today).days
-
-        if days_to_first > 0:
-            status_label = f"⏳ 保證配息期（還有 {days_to_first} 天開始比價）"
-            status_color = "#f59e0b"
-        elif days_to_first == 0:
-            status_label = "🔔 今日為首個比價日"
-            status_color = "#3b82f6"
-        else:
-            status_label = "📊 比價觀察期進行中"
-            status_color = "#10b981"
-
-        st.markdown(f"""
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px">
-            <span style="background:{status_color};color:white;padding:4px 12px;border-radius:20px;font-weight:bold;font-size:0.9em">{status_label}</span>
-            &nbsp;&nbsp;
-            <span style="color:#64748b">首個比價日 <b>{first_obs_date.strftime('%Y/%m/%d')}</b></span>
-            &nbsp;&nbsp;
-            <span style="color:#64748b">最後比價日 <b>{last_obs_date.strftime('%Y/%m/%d')}</b></span>
-            &nbsp;&nbsp;
-            <span style="color:#64748b">保證配息期（前{guaranteed_months}個月不比價）</span>
-            &nbsp;&nbsp;
-            <span style="color:#94a3b8;font-size:0.85em">首個比價日前不會觸發提前贖回</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # 配息期程表
-        if any(p['pay'] for p in periods):
-            st.markdown("### 💰 配息期程")
-            rows = []
-            total_usd = 0
-            for p in periods:
-                if p['pay']:
-                    twd = round(p['amount_usd'] * fx_rate)
-                    total_usd += p['amount_usd']
-                    rows.append({
-                        "期": p['t'],
-                        "配息日": p['pay'].strftime('%Y/%m/%d'),
-                        "預計配息 (USD)": f"${p['amount_usd']:,.2f}",
-                        f"台幣 (匯率{fx_rate:.0f})": f"{twd:,}",
-                    })
-
-            df_periods = pd.DataFrame(rows)
-
-            # 計算當前期數（以配息日判斷最近一期）
-            current_period = None
-            for p in periods:
-                if p['pay'] and p['pay'] >= today:
-                    current_period = p['t']
-                    break
-
-            # 樣式：目前期高亮
-            def highlight_current(row):
-                if current_period and row['期'] == current_period:
-                    return ['background-color: #f0fdf4; font-weight: bold; color: #15803d'] * len(row)
-                return [''] * len(row)
-
-            st.dataframe(df_periods.style.apply(highlight_current, axis=1), use_container_width=True, hide_index=True)
-
-            total_twd = round(total_usd * fx_rate)
-            st.markdown(f"""
-            <div style="text-align:right;font-size:0.95em;color:#475569;margin-top:4px">
-                總計（{len(rows)}期全拿）：
-                <b style="color:#dc2626">${total_usd:,} USD</b> ／
-                <b style="color:#dc2626">約{total_twd//10000:.1f}萬台幣</b>
-                &nbsp;※ 若提前KO，僅累計至觸發當期為止
-            </div>
-            """, unsafe_allow_html=True)
-            st.divider()
 
     # ── 多標的風險比較表 ──
     comparison_data = []
