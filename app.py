@@ -211,28 +211,21 @@ period_months = st.sidebar.number_input("觀察天期（月）", min_value=1.0, 
 run_btn = st.sidebar.button("🚀 開始分析", type="primary")
 
 st.sidebar.divider()
-st.sidebar.header("7️⃣ 一鍵帶入公版")
-_selected_product = st.sidebar.selectbox(
-    "選擇公版商品", list(FCN_PRODUCTS.keys()), label_visibility="collapsed"
-)
-if st.sidebar.button("📋 一鍵帶入公版", use_container_width=True):
-    _p = FCN_PRODUCTS[_selected_product]
-    st.session_state['w_tickers']       = _p['tickers']
-    st.session_state['w_ko_pct']        = _p['ko_pct']
-    st.session_state['w_strike_pct']    = _p['strike_pct']
-    st.session_state['w_ki_pct']        = _p['ki_pct']
-    st.session_state['w_first_obs']     = _p['first_ko_date']
-    st.session_state['w_last_obs']      = _p['last_ko_date']
-    st.session_state['w_guar_months']   = _p['guaranteed_months']
-    st.session_state['w_principal']     = float(_p['principal'])
-    st.session_state['w_coupon_pa']     = _p['coupon_pa']
-    st.session_state['w_fx_rate']       = _p['fx_rate']
-    st.session_state['w_n_periods']     = len(_p['periods'])
-    st.session_state['w_period_months'] = float(_p['period_months'])
-    for i, per in enumerate(_p['periods']):
-        st.session_state[f'pp_{i}'] = per['pay']
-    st.session_state['show_results'] = False
-    st.rerun()
+st.sidebar.header("7️⃣ 產生")
+if st.sidebar.button("🌐 產生公版頁面", type="primary", use_container_width=True):
+    _tlist  = [t.strip().upper() for t in tickers_input.split(',') if t.strip()]
+    _prices = {}
+    for _t in _tlist:
+        try:
+            _prices[_t] = float(yf.Ticker(_t).fast_info.last_price)
+        except Exception:
+            _prices[_t] = None
+    _filled = [p for p in periods if p.get('pay')]
+    st.session_state['fcn_page_html'] = _gen_fcn_html(
+        _tlist, ko_pct, strike_pct, ki_pct, coupon_pa,
+        principal, fx_rate, first_obs_date, last_obs_date,
+        _filled, monthly_coupon_usd, monthly_coupon_twd, _prices
+    )
 if run_btn:
     st.session_state['show_results'] = True
 
@@ -610,6 +603,138 @@ def generate_fcn_image(
     return buf.getvalue()
 
 
+def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
+                  principal, fx_rate, first_obs_date, last_obs_date,
+                  filled_periods, monthly_coupon_usd, monthly_coupon_twd, prices_dict):
+    today     = date.today()
+    today_str = today.strftime('%Y/%m/%d')
+    last_str  = last_obs_date.strftime('%Y/%m/%d') if last_obs_date else '—'
+    ticker_str = '・'.join(tickers)
+    p_wan      = principal * fx_rate / 10000
+    monthly_pct = coupon_pa / 12
+
+    # ── 配息期程 rows ──
+    cur_t = None
+    for p in filled_periods:
+        if p.get('pay') and p['pay'] >= today:
+            cur_t = p['t']; break
+
+    rows_html = ''
+    for p in filled_periods:
+        is_cur = (p['t'] == cur_t)
+        cls    = ' class="cur"' if is_cur else ''
+        arrow  = '▶ ' if is_cur else ''
+        pay    = p['pay'].strftime('%Y/%m/%d') if p.get('pay') else '—'
+        usd    = p.get('amount_usd', monthly_coupon_usd)
+        twd    = round(usd * fx_rate)
+        rows_html += f'<tr{cls}><td>{arrow}{p["t"]}</td><td>—</td><td>—</td><td>—</td><td>{pay}</td><td class="amt">${usd:,.0f} USD　{twd/10000:.1f}萬台幣</td></tr>'
+
+    total_usd = sum(p.get('amount_usd', monthly_coupon_usd) for p in filled_periods)
+    total_twd = round(total_usd * fx_rate)
+
+    # ── 股票卡片 ──
+    cards_html = ''
+    for ticker in tickers:
+        cp = prices_dict.get(ticker)
+        if cp:
+            ko_p   = cp * ko_pct / 100
+            st_p   = cp * strike_pct / 100
+            ki_p   = cp * ki_pct / 100
+            d_ko   = ko_pct - 100
+            d_st   = strike_pct - 100
+            d_ki   = ki_pct - 100
+            rng    = ko_pct - ki_pct
+            pos    = (100 - ki_pct) / rng * 100 if rng > 0 else 50
+            ko_col = 'green' if d_ko >= 0 else 'red'
+            st_col = 'green' if d_st >= 0 else 'red'
+            cards_html += f'''
+            <div class="card">
+              <div class="card-hdr">
+                <div><div class="cticker">{ticker}</div><div class="csub">最新股價</div></div>
+                <span class="ctag">正常</span>
+              </div>
+              <div class="card-body">
+                <div class="cprice">${cp:.2f}</div>
+                <div class="csub2">以當前價格為 100% 基準</div>
+                <div class="prog-wrap"><div class="prog-fill"></div><div class="prog-dot" style="left:{pos:.1f}%"></div></div>
+                <div class="mets">
+                  <div class="m ko"><div class="ml">距 KO ({ko_pct:.0f}%)</div>
+                    <div class="mv {ko_col}">{("+" if d_ko>=0 else "")}{d_ko:.1f}%</div>
+                    <div class="mp">${ko_p:.2f}</div></div>
+                  <div class="m st"><div class="ml">距 Strike ({strike_pct:.0f}%)</div>
+                    <div class="mv {st_col}">{("+" if d_st>=0 else "")}{d_st:.1f}%</div>
+                    <div class="mp">${st_p:.2f}</div></div>
+                  <div class="m ki"><div class="ml">距 KI ({ki_pct:.0f}%)</div>
+                    <div class="mv amber">{("+" if d_ki>=0 else "")}{d_ki:.1f}%</div>
+                    <div class="mp">${ki_p:.2f}</div></div>
+                </div>
+              </div>
+            </div>'''
+        else:
+            cards_html += f'<div class="card"><div class="card-hdr"><div class="cticker">{ticker}</div></div><div class="card-body" style="color:#aaa">股價載入失敗</div></div>'
+
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{{box-sizing:border-box}}body{{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","微軟正黑體",sans-serif;margin:0;background:#f5f7fa;color:#333}}
+.wrap{{padding:12px}}
+.hdr{{background:#1a2d42;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0}}
+.pname{{font-size:1.2em;font-weight:bold;margin-bottom:6px}}
+.meta{{display:flex;flex-wrap:wrap;gap:14px;font-size:.78em;color:#9eb3c8}}
+.tbl-wrap{{background:#fff;border:1px solid #e0e0e0;border-radius:0 0 6px 6px;margin-bottom:12px}}
+.sec-lbl{{padding:8px 16px;font-size:.82em;font-weight:600;color:#555;background:#f5f5f5;border-bottom:1px solid #e0e0e0}}
+table{{width:100%;border-collapse:collapse;font-size:.82em}}
+th{{padding:7px 12px;color:#777;text-align:left;background:#fafafa;border-bottom:1px solid #e0e0e0}}
+td{{padding:7px 12px;border-bottom:1px solid #f0f0f0}}
+tr.cur{{background:#f0fff4;font-weight:600}}tr.cur td{{color:#155724}}
+.amt{{color:#c0392b;font-weight:bold}}
+tfoot td{{padding:8px 12px;background:#f9f9f9;font-weight:bold;border-top:2px solid #ddd}}
+.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-bottom:12px}}
+.card{{background:#fff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden}}
+.card-hdr{{padding:10px 14px;background:#fafafa;border-bottom:1px solid #ebebeb;display:flex;justify-content:space-between;align-items:flex-start}}
+.cticker{{font-weight:bold;font-size:1.05em}}.csub{{font-size:.72em;color:#888;margin-top:2px}}
+.ctag{{font-size:.72em;padding:2px 8px;border-radius:10px;background:#e8f5e9;color:#2e7d32}}
+.card-body{{padding:12px 14px}}
+.cprice{{font-size:1.5em;font-weight:bold;color:#1a2d42}}.csub2{{font-size:.75em;color:#888;margin-bottom:10px}}
+.prog-wrap{{position:relative;height:8px;background:#eee;border-radius:4px;margin:6px 0 14px}}
+.prog-fill{{height:100%;background:linear-gradient(to right,#ef5350 0%,#ffd54f 50%,#66bb6a 100%);border-radius:4px;width:100%}}
+.prog-dot{{position:absolute;top:-4px;width:4px;height:16px;background:#333;border-radius:2px;transform:translateX(-50%)}}
+.mets{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}}
+.m{{padding:7px 6px;border-radius:5px;text-align:center}}.ko{{background:#fef2f2}}.st{{background:#f0fdf4}}.ki{{background:#fffbeb}}
+.ml{{font-size:.68em;color:#888;margin-bottom:2px}}.mv{{font-size:1em;font-weight:bold}}.mp{{font-size:.7em;color:#aaa}}
+.green{{color:#16a34a}}.red{{color:#dc2626}}.amber{{color:#d97706}}
+.bars{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}}
+.bar{{padding:10px 14px;border-radius:6px;font-size:.8em}}
+.bar.ko2{{background:#f0fdf4;border:1px solid #86efac}}.bar.st2{{background:#fffbeb;border:1px solid #fcd34d}}.bar.ki2{{background:#fef2f2;border:1px solid #fca5a5}}
+.bt{{font-weight:bold;margin-bottom:4px}}.bd{{color:#555;line-height:1.5}}
+.foot{{text-align:right;font-size:.72em;color:#aaa;margin-top:10px}}
+</style></head><body><div class="wrap">
+<div class="hdr">
+  <div style="font-size:.72em;color:#9eb3c8">FCN 即時監控</div>
+  <div class="pname">FCN 自動提前贖回 FCN・{ticker_str}・{principal:,.0f} USD</div>
+  <div class="meta">
+    <span>交易日 {today_str}</span><span>到期日 {last_str}</span>
+    <span>年化息率 {coupon_pa:.2f}%</span>
+    <span>月息 {monthly_pct:.2f}% × {p_wan:.1f}萬台幣（匯率{fx_rate:.0f}）</span>
+    <span>KO觀測 首比價日起</span><span>幣別 USD</span>
+  </div>
+</div>
+<div class="tbl-wrap">
+  <div class="sec-lbl">📅 配息期程</div>
+  <table><thead><tr><th>期</th><th>觀察起日</th><th>觀察結束日</th><th>比價日</th><th>配息日</th><th>預計配息</th></tr></thead>
+  <tbody>{rows_html}</tbody>
+  <tfoot><tr><td colspan="5">合計（{len(filled_periods)}期全領）</td>
+    <td><span class="amt">${total_usd:,.0f} USD　{total_twd/10000:.1f}萬台幣（匯率{fx_rate:.0f}）</span></td></tr></tfoot>
+  </table>
+</div>
+<div class="cards">{cards_html}</div>
+<div class="bars">
+  <div class="bar ko2"><div class="bt">🟢 KO 自動提前贖回</div><div class="bd">三檔標的皆超過比價基準，產品在比價日自動贖回，可拿到本期配息及連結獎金。</div></div>
+  <div class="bar st2"><div class="bt">🟡 Strike 執行價</div><div class="bd">到期時若最差標的介於Strike和KI之間，以此買進最差標的，票面本金不受影響。</div></div>
+  <div class="bar ki2"><div class="bt">🔴 KI 保護價</div><div class="bd">若最差標的曾跌破KI，到期時需以Strike買進最差標的，本金可能損失。</div></div>
+</div>
+<div class="foot">結構商品全能工作站・{today_str}</div>
+</div></body></html>'''
+
+
 def show_tradingview(symbol):
     html_code = f"""
     <div style="transform: scale(1.2); transform-origin: top left; width: 83.3%;">
@@ -625,6 +750,13 @@ def show_tradingview(symbol):
 # ==========================================
 # 主程式
 # ==========================================
+
+# ── Section 7：產生公版頁面 ──
+if st.session_state.get('fcn_page_html'):
+    st.markdown("## 🌐 公版頁面預覽")
+    components.html(st.session_state['fcn_page_html'], height=950, scrolling=True)
+    st.divider()
+
 if st.session_state.get('show_results'):
     ticker_list = [t.strip().upper() for t in tickers_input.split(',') if t.strip()]
     if not ticker_list:
