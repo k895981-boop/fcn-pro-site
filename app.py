@@ -560,7 +560,7 @@ if st.session_state.get('show_results'):
         """)
 
         # 一鍵產出圖片
-        _img_key = f"img_{ticker}_{date.today()}"
+        _img_key = f"img_{ticker}_{coupon_pa}_{principal}_{ko_pct}_{ki_pct}_{strike_pct}"
         if _img_key not in st.session_state:
             try:
                 st.session_state[_img_key] = generate_summary_image(
