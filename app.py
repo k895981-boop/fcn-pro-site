@@ -147,32 +147,6 @@ FCN_PRODUCTS = {
 # 側邊欄
 # ==========================================
 
-# ── 7️⃣ 一鍵帶入公版 ──
-st.sidebar.header("7️⃣ 一鍵帶入公版")
-_selected_product = st.sidebar.selectbox(
-    "選擇公版商品", list(FCN_PRODUCTS.keys()), label_visibility="collapsed"
-)
-if st.sidebar.button("📋 一鍵帶入公版", use_container_width=True):
-    _p = FCN_PRODUCTS[_selected_product]
-    st.session_state['w_tickers']      = _p['tickers']
-    st.session_state['w_ko_pct']       = _p['ko_pct']
-    st.session_state['w_strike_pct']   = _p['strike_pct']
-    st.session_state['w_ki_pct']       = _p['ki_pct']
-    st.session_state['w_first_obs']    = _p['first_ko_date']
-    st.session_state['w_last_obs']     = _p['last_ko_date']
-    st.session_state['w_guar_months']  = _p['guaranteed_months']
-    st.session_state['w_principal']    = float(_p['principal'])
-    st.session_state['w_coupon_pa']    = _p['coupon_pa']
-    st.session_state['w_fx_rate']      = _p['fx_rate']
-    st.session_state['w_n_periods']    = len(_p['periods'])
-    st.session_state['w_period_months']= float(_p['period_months'])
-    for i, per in enumerate(_p['periods']):
-        st.session_state[f'pp_{i}'] = per['pay']
-    st.session_state['show_results'] = False   # 重置結果，等重新分析
-    st.rerun()
-
-st.sidebar.divider()
-
 # ── 1️⃣ 輸入標的 ──
 st.sidebar.header("1️⃣ 輸入標的")
 st.sidebar.caption("美股直接輸入代碼，台股請加 .TW（如 2330.TW）")
@@ -228,11 +202,35 @@ for i in range(int(n_periods)):
 
 st.sidebar.divider()
 st.sidebar.header("6️⃣ 回測參數")
-period_months = st.sidebar.number_input("觀察天期（月）", min_value=1, max_value=60,
+period_months = st.sidebar.number_input("觀察天期（月）", min_value=1.0, max_value=60.0,
                                          value=float(st.session_state.get('w_period_months', 6.0)),
                                          step=1.0, key='w_period_months')
 
 run_btn = st.sidebar.button("🚀 開始分析", type="primary")
+
+st.sidebar.divider()
+st.sidebar.header("7️⃣ 一鍵帶入公版")
+_selected_product = st.sidebar.selectbox(
+    "選擇公版商品", list(FCN_PRODUCTS.keys()), label_visibility="collapsed"
+)
+if st.sidebar.button("📋 一鍵帶入公版", use_container_width=True):
+    _p = FCN_PRODUCTS[_selected_product]
+    st.session_state['w_tickers']       = _p['tickers']
+    st.session_state['w_ko_pct']        = _p['ko_pct']
+    st.session_state['w_strike_pct']    = _p['strike_pct']
+    st.session_state['w_ki_pct']        = _p['ki_pct']
+    st.session_state['w_first_obs']     = _p['first_ko_date']
+    st.session_state['w_last_obs']      = _p['last_ko_date']
+    st.session_state['w_guar_months']   = _p['guaranteed_months']
+    st.session_state['w_principal']     = float(_p['principal'])
+    st.session_state['w_coupon_pa']     = _p['coupon_pa']
+    st.session_state['w_fx_rate']       = _p['fx_rate']
+    st.session_state['w_n_periods']     = len(_p['periods'])
+    st.session_state['w_period_months'] = float(_p['period_months'])
+    for i, per in enumerate(_p['periods']):
+        st.session_state[f'pp_{i}'] = per['pay']
+    st.session_state['show_results'] = False
+    st.rerun()
 if run_btn:
     st.session_state['show_results'] = True
 
