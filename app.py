@@ -574,13 +574,15 @@ if st.session_state.get('show_results'):
                 st.session_state[_img_key] = None
                 st.warning(f"圖片產出失敗：{e}")
         if st.session_state.get(_img_key):
-            st.download_button(
-                label=f"📸 一鍵產出分析摘要圖片（{ticker}）",
-                data=st.session_state[_img_key],
-                file_name=f"{ticker}_FCN分析摘要_{date.today().strftime('%Y%m%d')}.png",
-                mime="image/png",
-                use_container_width=True,
-                key=f"dl_{ticker}_{date.today()}",
+            import base64 as _b64
+            _b64_str = _b64.b64encode(st.session_state[_img_key]).decode()
+            _fname   = f"{ticker}_FCN分析摘要_{date.today().strftime('%Y%m%d')}.png"
+            st.markdown(
+                f'<a href="data:image/png;base64,{_b64_str}" download="{_fname}" '
+                f'style="display:block;width:100%;text-align:center;padding:10px;'
+                f'background:#1e3a5f;color:white;border-radius:8px;font-weight:bold;'
+                f'text-decoration:none;font-size:1em;">📸 一鍵產出分析摘要圖片（{ticker}）</a>',
+                unsafe_allow_html=True,
             )
 
         fig_bar = plot_bar_chart(bt_data, ticker)
