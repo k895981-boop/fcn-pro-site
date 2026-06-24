@@ -334,13 +334,8 @@ ko_memory  = st.sidebar.checkbox("KO Memory 模式（記憶型敲出）", value=
 
 st.sidebar.divider()
 st.sidebar.header("3️⃣ 產品時程設定")
-_first_days = st.sidebar.number_input("首個比價日（距今天數）", min_value=0, max_value=730,
-                                       value=int(st.session_state.get('w_first_days', 12)), step=1, key='w_first_days')
-_last_days  = st.sidebar.number_input("最後比價日（距今天數）", min_value=0, max_value=730,
-                                       value=int(st.session_state.get('w_last_days', 103)), step=1, key='w_last_days')
-first_obs_date = date.today() + timedelta(days=int(_first_days))
-last_obs_date  = date.today() + timedelta(days=int(_last_days))
-st.sidebar.caption(f"首個比價日：{first_obs_date.strftime('%Y/%m/%d')}　最後：{last_obs_date.strftime('%Y/%m/%d')}")
+first_obs_date = st.sidebar.date_input("首個比價日", value=st.session_state.get('w_first_obs', None), key='w_first_obs')
+last_obs_date  = st.sidebar.date_input("最後比價日", value=st.session_state.get('w_last_obs',  None), key='w_last_obs')
 guaranteed_months = st.sidebar.number_input("保證配息期（月）", min_value=0, max_value=12,
                                              value=int(st.session_state.get('w_guar_months', 1)), step=1, key='w_guar_months')
 
@@ -369,11 +364,8 @@ n_periods = st.sidebar.number_input("期數", min_value=1, max_value=24,
 periods = []
 for i in range(int(n_periods)):
     with st.sidebar.expander(f"第 {i+1} 期", expanded=(i == 0)):
-        _pay_days = st.number_input(f"配息日（距今天數）", min_value=0, max_value=730,
-                                    value=int(st.session_state.get(f'pp_days_{i}', (i+1)*30)),
-                                    step=1, key=f"pp_days_{i}")
-        p_pay = date.today() + timedelta(days=int(_pay_days))
-        st.caption(f"配息日：{p_pay.strftime('%Y/%m/%d')}　預計配息：${monthly_coupon_usd:,.2f} USD ≈ {round(monthly_coupon_usd * fx_rate):,} TWD")
+        p_pay = st.date_input(f"配息日", value=st.session_state.get(f'pp_{i}', None), key=f"pp_{i}")
+        st.caption(f"預計配息：${monthly_coupon_usd:,.2f} USD ≈ {round(monthly_coupon_usd * fx_rate):,} TWD")
         periods.append({"t": i+1, "start": None, "end": None, "pay": p_pay, "amount_usd": monthly_coupon_usd})
 
 filled_periods = [p for p in periods if p.get('pay')]
