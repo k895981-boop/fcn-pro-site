@@ -443,7 +443,7 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
 # ==========================================
 
 # ── 1️⃣ 輸入標的 ──
-st.sidebar.caption("⚡ v3.6 — 2026-06-25")
+st.sidebar.caption("⚡ v3.7 — 2026-06-25")
 st.sidebar.header("1️⃣ 輸入標的")
 st.sidebar.caption("美股直接輸入代碼，台股請加 .TW（如 2330.TW）")
 _n_tickers = st.sidebar.number_input("檔數", min_value=1, max_value=6,
@@ -847,21 +847,44 @@ def generate_fcn_image(
         sec_title('條件說明')
         leg_data = [
             ('KO 自動提前贖回', f'KO 出場 {ko_pct:.0f}%', '#dc2626', '#fff1f2', '#fecaca',
-             '三檔標的皆曾超 ≥ 期初價，產品提前結束，拿回本金＋已累積票息。', '只要有一檔未達標，當天就不贖回。'),
+             '三檔標的皆曾超 ≥ 期初價，產品提前結束，拿回本金＋已累積票息。只要有一檔未達標，當天就不贖回。'),
             ('Strike 執行價', f'— Strike {strike_pct:.0f}%', '#16a34a', '#f0fdf4', '#bbf7d0',
-             '到期時若最弱標的低於此值，將以此價格買進', '最弱標的股票，而非返還現金本金。'),
+             '到期時若最弱標的低於此值，將以此價格買進最弱標的股票，而非返還現金本金。'),
             ('KI 保護債', f'▼ KI 保護 {ki_pct:.0f}%', '#d97706', '#fffbeb', '#fde68a',
-             '若最後比價日，任一檔低於KI值，到期將以執行價', '（Strike）買進最弱標的，曾跌破則不在此限。'),
+             '若最後比價日，任一檔低於KI值，到期將以執行價（Strike）買進最弱標的，曾跌破則不在此限。'),
         ]
         leg_w = (W - PAD*2 - GAP*2) // 3
-        leg_h = IP + hSM + 6 + hLG + 10 + hSM*2 + 6 + IP
-        for ci, (title_l, badge, col, bg, border, line1, line2) in enumerate(leg_data):
+        _max_tw = leg_w - IP*2
+
+        def _wrap(text, font, max_w):
+            lines, cur = [], ''
+            for ch in text:
+                if _tw(font, cur + ch) > max_w:
+                    if cur: lines.append(cur)
+                    cur = ch
+                else:
+                    cur += ch
+            if cur: lines.append(cur)
+            return lines
+
+        # 先計算所有卡片的換行結果，找最多行數決定統一高度
+        leg_wrapped = []
+        for (title_l, badge, col, bg, border, desc) in leg_data:
+            wrapped = _wrap(desc, fSM, _max_tw)
+            leg_wrapped.append((title_l, badge, col, bg, border, wrapped))
+
+        max_lines = max(len(w[5]) for w in leg_wrapped)
+        leg_h = IP + hSM + 6 + hLG + 10 + (hSM + 3) * max_lines + IP
+
+        for ci, (title_l, badge, col, bg, border, wrapped_lines) in enumerate(leg_wrapped):
             lx = PAD + ci*(leg_w+GAP)
             _rect(d, lx, y, lx+leg_w, y+leg_h, _hex(bg), outline=border, radius=10)
             d.text((lx+IP, y+IP), title_l, font=fSM, fill=_hex('#64748b'))
             d.text((lx+IP, y+IP+hSM+6), badge, font=fLG, fill=_hex(col))
-            d.text((lx+IP, y+IP+hSM+6+hLG+8), line1, font=fSM, fill=_hex('#374151'))
-            d.text((lx+IP, y+IP+hSM+6+hLG+8+hSM+3), line2, font=fSM, fill=_hex('#374151'))
+            ty = y + IP + hSM + 6 + hLG + 10
+            for line in wrapped_lines:
+                d.text((lx+IP, ty), line, font=fSM, fill=_hex('#374151'))
+                ty += hSM + 3
         y += leg_h + GAP
 
     # watermark
