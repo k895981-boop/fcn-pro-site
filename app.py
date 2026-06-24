@@ -280,29 +280,28 @@ def _gen_fcn_html(tickers, ko_pct, strike_pct, ki_pct, coupon_pa,
   </div>
 </div>
 <div class="levels">
-  <div class="level-chip level-ko">出場價 {ko_pct:.0f}%</div>
+  <div class="level-chip level-ko">KO 出場 {ko_pct:.0f}%</div>
   <div class="level-chip level-st">— Strike 執行 {strike_pct:.0f}%</div>
   <div class="level-chip level-ki">▼ KI 保護 {ki_pct:.0f}%</div>
 </div>
 {periods_block}
-{stocks_block}
 <div class="section">
   <div class="section-title">📝 條件說明</div>
   <div class="legend-grid">
     <div class="legend-card legend-ko">
-      <div class="legend-label">KO 自動提前回固</div>
-      <div class="legend-badge" style="color:#f87171">出場價 {ko_pct:.0f}%</div>
-      <div class="legend-text">三檔標的皆超標，產品自動結束，拿回本金＋已累積配息。只要有一檔未達標，當天就不解構。</div>
+      <div class="legend-label">KO 自動提前贖回</div>
+      <div class="legend-badge" style="color:#f87171">KO 出場 {ko_pct:.0f}%</div>
+      <div class="legend-text">三檔標的皆曾超 ≥ 期初價，產品提前結束，拿回本金＋已累積票息（未到的期數不計）。只要有一檔未達標，當天就不贖回。</div>
     </div>
     <div class="legend-card legend-st">
       <div class="legend-label">Strike 執行價</div>
       <div class="legend-badge" style="color:#4ade80">— Strike {strike_pct:.0f}%</div>
-      <div class="legend-text">到期時若最差標的低於此值，將以此價格買進最差標的股票，用以返還本金。</div>
+      <div class="legend-text">到期時若最弱標的低於此值，將以此價格買進最弱標的的股票，而非返還現金本金。</div>
     </div>
     <div class="legend-card legend-ki">
-      <div class="legend-label">KI 保護價</div>
+      <div class="legend-label">KI 保護債</div>
       <div class="legend-badge" style="color:#fb923c">▼ KI 保護 {ki_pct:.0f}%</div>
-      <div class="legend-text">若任一比價日任一檔低於 KI 值，到期時將以執行價（Strike）買進最差標的股票，到期日前若未跌破，不在此限。</div>
+      <div class="legend-text">若最後比價日，任一檔低於 KI 值，到期時將以執行價（Strike）買進最弱的標的。到期日前若曾經跌破，不在此限。</div>
     </div>
   </div>
 </div>
@@ -327,7 +326,7 @@ tickers_input = st.sidebar.text_area(
 st.sidebar.divider()
 st.sidebar.header("2️⃣ 結構條件 (%)")
 st.sidebar.info("以該期「進場價」為 100% 基準：")
-ko_pct     = st.sidebar.number_input("KO 出廠價（%）",      key='w_ko_pct',     value=st.session_state.get('w_ko_pct',     100.0), step=0.5,  format="%.1f")
+ko_pct     = st.sidebar.number_input("KO（出場價）",         key='w_ko_pct',     value=st.session_state.get('w_ko_pct',     100.0), step=0.5,  format="%.1f")
 strike_pct = st.sidebar.number_input("Strike 執行價（%）",  key='w_strike_pct', value=st.session_state.get('w_strike_pct', 80.0),  step=1.0,  format="%.1f")
 ki_pct     = st.sidebar.number_input("KI 保護價（%）",      key='w_ki_pct',     value=st.session_state.get('w_ki_pct',     65.0),  step=1.0,  format="%.1f")
 ko_memory  = st.sidebar.checkbox("KO Memory 模式（記憶型敲出）", value=False)
@@ -348,13 +347,13 @@ st.sidebar.divider()
 st.sidebar.header("4️⃣ 投資與配息設定")
 principal = st.sidebar.number_input("投資本金（USD）",
                                      value=float(st.session_state.get('w_principal', 100000.0)),
-                                     step=10000.0, key='w_principal')
+                                     step=10000.0, format="%.0f", key='w_principal')
 coupon_pa = st.sidebar.number_input("年化配息率（Coupon %）",
                                      value=float(st.session_state.get('w_coupon_pa', 8.00)),
                                      step=0.01, format="%.2f", key='w_coupon_pa')
 fx_rate   = st.sidebar.number_input("匯率（USD → TWD）",
                                      value=float(st.session_state.get('w_fx_rate', 31.0)),
-                                     step=0.1, format="%.1f", key='w_fx_rate')
+                                     step=0.01, format="%.2f", key='w_fx_rate')
 
 # 自動計算每月配息
 monthly_coupon_usd = round(principal * coupon_pa / 100 / 12, 2)
@@ -387,8 +386,8 @@ period_months = st.sidebar.number_input("觀察天期（月）", min_value=1.0, 
 run_btn = st.sidebar.button("🚀 開始分析", type="primary")
 
 st.sidebar.divider()
-st.sidebar.header("7️⃣ 生成")
-if st.sidebar.button("🌐 生成", type="primary", use_container_width=True):
+st.sidebar.header("7️⃣ 預覽")
+if st.sidebar.button("🌐 預覽", type="primary", use_container_width=True):
     _tlist  = [t.strip().upper() for t in tickers_input.split(',') if t.strip()]
     _prices = {}
     for _t in _tlist:
@@ -617,7 +616,7 @@ def generate_fcn_image(
         _rect(d, PAD, y, W-PAD, y+bar_h, _hex('#eff6ff'), outline='#bfdbfe', radius=8)
         ky = y + IP
         for offset, label, col in [
-            (0,   f'出場價 {ko_pct:.0f}%',           '#dc2626'),
+            (0,   f'KO 出場 {ko_pct:.0f}%',           '#dc2626'),
             (360, f'— Strike 執行  {strike_pct:.0f}%', '#16a34a'),
             (720, f'▼ KI 保護  {ki_pct:.0f}%',      '#d97706'),
         ]:
@@ -751,12 +750,12 @@ def generate_fcn_image(
     if sections.get('legend', True):
         sec_title('📝  條件說明')
         leg_data = [
-            ('KO 自動提前回固', f'出場價 {ko_pct:.0f}%', '#dc2626', '#fff1f2', '#fecaca',
-             '三檔標的皆超標，產品自動結束，拿回本金＋已累積配息。', '只要有一檔未達標，當天就不解構。'),
+            ('KO 自動提前贖回', f'KO 出場 {ko_pct:.0f}%', '#dc2626', '#fff1f2', '#fecaca',
+             '三檔標的皆曾超 ≥ 期初價，產品提前結束，拿回本金＋已累積票息。', '只要有一檔未達標，當天就不贖回。'),
             ('Strike 執行價', f'— Strike {strike_pct:.0f}%', '#16a34a', '#f0fdf4', '#bbf7d0',
-             '到期時若最差標的低於此值，將以此價格買進', '最差標的股票，用以返還本金。'),
-            ('KI 保護價', f'▼ KI 保護 {ki_pct:.0f}%', '#d97706', '#fffbeb', '#fde68a',
-             '若任一比價日任一檔低於KI值，到期將以執行價', '（Strike）買進最差標的，未跌破則不在此限。'),
+             '到期時若最弱標的低於此值，將以此價格買進', '最弱標的股票，而非返還現金本金。'),
+            ('KI 保護債', f'▼ KI 保護 {ki_pct:.0f}%', '#d97706', '#fffbeb', '#fde68a',
+             '若最後比價日，任一檔低於KI值，到期將以執行價', '（Strike）買進最弱標的，曾跌破則不在此限。'),
         ]
         leg_w = (W - PAD*2 - GAP*2) // 3
         leg_h = IP + hSM + 6 + hLG + 10 + hSM*2 + 6 + IP
@@ -799,7 +798,7 @@ def show_tradingview(symbol):
 
 # ── Section 7：產生公版頁面 ──
 if st.session_state.get('fcn_page_html'):
-    st.markdown("## 🌐 公版頁面預覽")
+    st.markdown("## 🌐 預覽")
     components.html(st.session_state['fcn_page_html'], height=950, scrolling=True)
     st.divider()
 
@@ -1011,7 +1010,7 @@ else:
 # ══════════════════════════════════════
 if st.session_state.get('fcn_page_html'):
     st.divider()
-    st.markdown("## 🌐 公版頁面預覽")
+    st.markdown("## 🌐 預覽")
     import base64 as _b64
     _html_content = st.session_state['fcn_page_html']
     components.html(_html_content, height=900, scrolling=True)
