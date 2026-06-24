@@ -4,6 +4,5 @@ aptPkgs = ["fonts-noto-cjk", "fontconfig"]
 [phases.install]
 cmds = [
   "pip install -r requirements.txt",
-  "fc-cache -fv",
-  "python -c \"import matplotlib.font_manager as fm; fm._rebuild(); print('matplotlib font cache rebuilt')\""
+  "fc-cache -fv"
 ]
