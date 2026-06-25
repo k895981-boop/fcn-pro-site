@@ -561,11 +561,14 @@ if st.sidebar.button("🖼️ 開始製圖", type="primary", use_container_width
 @st.cache_data(ttl=3600)
 def get_stock_data(ticker):
     try:
-        df = yf.download(ticker, start="2009-01-01", progress=False)
+        df = yf.download(ticker, start="2009-01-01", progress=False, auto_adjust=True)
         if df.empty:
             return None, f"找不到 {ticker}"
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        else:
+            df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
         df = df.reset_index()
-        df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
         df = df.loc[:, ~df.columns.duplicated()]
         if 'Datetime' in df.columns: df = df.rename(columns={'Datetime': 'Date'})
         if 'Close' not in df.columns: return None, "無收盤價資料"
