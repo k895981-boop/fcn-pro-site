@@ -519,10 +519,26 @@ if st.sidebar.button("🌐 預覽", type="primary", use_container_width=True):
     _tlist  = [t.strip().upper() for t in tickers_input.split(',') if t.strip()]
     _prices = {}
     for _t in _tlist:
+        price = None
         try:
-            _prices[_t] = float(yf.Ticker(_t).fast_info.last_price)
+            price = float(yf.Ticker(_t).fast_info.last_price)
         except Exception:
-            _prices[_t] = None
+            pass
+        if not price:
+            try:
+                _hist = yf.Ticker(_t).history(period="2d")
+                if not _hist.empty:
+                    price = float(_hist["Close"].iloc[-1])
+            except Exception:
+                pass
+        if not price:
+            try:
+                _dl = yf.download(_t, period="2d", progress=False, auto_adjust=True)
+                if not _dl.empty:
+                    price = float(_dl["Close"].iloc[-1])
+            except Exception:
+                pass
+        _prices[_t] = price
     _filled = [p for p in periods if p.get('pay')]
     st.session_state['fcn_page_html'] = _gen_fcn_html(
         _tlist, ko_pct, strike_pct, ki_pct, coupon_pa,
